@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.Dash
+import io.github.arka01.cardash.KeyMarks
 import io.github.arka01.cardash.Level
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
@@ -84,7 +85,7 @@ private class Cell(val width: Float, val height: Float)
 
 private val LocalCell = staticCompositionLocalOf { Cell(10f, 12f) }
 
-private enum class Tab { DASH, ALL, LOG }
+private enum class Tab { DASH, ALL, DEV }
 
 /** What the screen can ask the activity to do. */
 class Actions(
@@ -93,6 +94,9 @@ class Actions(
     val stop: () -> Unit,
     val pickAdapter: () -> Unit,
     val share: () -> Unit,
+    val keyTest: () -> Unit,
+    val shareTest: () -> Unit,
+    val markKey: (String) -> Unit,
 )
 
 @Composable
@@ -149,7 +153,7 @@ fun TerminalApp(adapterName: String?, actions: Actions) {
                             }
                         }
                         Tab.ALL -> AllValues(snap, now, perRow = if (landscape) 2 else 1)
-                        Tab.LOG -> LogView(snap, adapterName, actions)
+                        Tab.DEV -> DevView(snap, adapterName, actions)
                     }
                 }
                 Rule(fitCols)
@@ -252,6 +256,7 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
         Mode.LIVE -> "● LIVE" to GREEN
         Mode.DEMO -> "◆ DEMO" to AMBER
         Mode.OFF -> "○ OFF" to DIM
+        Mode.TEST -> "◇ TEST" to AMBER
     }
     Line {
         put("CAR DASH ${BuildConfig.VERSION_NAME} ", GREEN)
@@ -272,7 +277,7 @@ private fun BottomBar(tab: Tab, s: Snapshot, actions: Actions, select: (Tab) -> 
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Key("DASH", tab == Tab.DASH) { select(Tab.DASH) }
         Key("ALL", tab == Tab.ALL) { select(Tab.ALL) }
-        Key("LOG", tab == Tab.LOG) { select(Tab.LOG) }
+        Key("DEV", tab == Tab.DEV) { select(Tab.DEV) }
         when (s.mode) {
             Mode.OFF -> {
                 Key("LIVE", false, GREEN, actions.connect)
@@ -280,6 +285,7 @@ private fun BottomBar(tab: Tab, s: Snapshot, actions: Actions, select: (Tab) -> 
             }
             Mode.LIVE -> Key("STOP", false, GREEN, actions.stop)
             Mode.DEMO -> Key("STOP DEMO", false, AMBER, actions.stop)
+            Mode.TEST -> Key("STOP TEST", false, AMBER, actions.stop)
         }
     }
 }
@@ -450,16 +456,46 @@ private fun AllValues(s: Snapshot, now: Long, perRow: Int) {
     }
 }
 
+/** DEV tab: adapter choice, the KEY TEST, and the connection log. */
 @Composable
-private fun LogView(s: Snapshot, adapterName: String?, actions: Actions) {
-    Column {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Key("ADAPTER: ${adapterName ?: "choose"}", false, GREEN, actions.pickAdapter)
-            Key("SHARE", false, GREEN, actions.share)
+private fun DevView(s: Snapshot, adapterName: String?, actions: Actions) {
+    val test = s.test
+    val testing = s.mode == Mode.TEST
+    LazyColumn {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Key("ADAPTER", false, GREEN, actions.pickAdapter)
+                Key("SHARE LOG", false, GREEN, actions.share)
+            }
         }
-        Line(wrap = true) { put("fast read: ${s.fastRead.ifEmpty { "-" }}", DIM) }
-        LazyColumn {
-            items(s.log.reversed()) { line -> Line(wrap = true) { put(line) } }
+        item { Line { put("adapter: ${adapterName ?: "not chosen"}", DIM) } }
+        item { Section("KEY TEST") }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                if (testing) Key("STOP TEST", false, AMBER, actions.stop) else Key("START TEST", false, GREEN, actions.keyTest)
+                Key("SHARE TEST", false, GREEN, actions.shareTest)
+            }
         }
+        item {
+            // Tap the key's position each time you turn it; the label goes into the recording.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                for (position in KeyMarks.POSITIONS) {
+                    Key(position, testing && test?.label == position, AMBER) { actions.markKey(position) }
+                }
+            }
+        }
+        item {
+            Line(wrap = true) {
+                if (test == null) put("LIVE/DEMO off; START TEST, then tap the key position at every turn.", DIM)
+                else put("${test.file} · ${test.rows} rows", DIM)
+            }
+        }
+        if (test != null) {
+            item { Line { put("   t label     volt ecu  net", DIM) } }
+            items(test.recent.reversed()) { line -> Line { put(line) } }
+        }
+        item { Section("LOG") }
+        item { Line(wrap = true) { put("fast read: ${s.fastRead.ifEmpty { "-" }}", DIM) } }
+        items(s.log.reversed()) { line -> Line(wrap = true) { put(line) } }
     }
 }

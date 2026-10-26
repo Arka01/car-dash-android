@@ -2,6 +2,7 @@ package io.github.arka01.cardash
 
 import android.Manifest
 import android.app.AlertDialog
+import android.content.ClipData
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -13,7 +14,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.FileProvider
 import io.github.arka01.cardash.obd.Adapters
+import io.github.arka01.cardash.obd.SavedAdapter
 import io.github.arka01.cardash.ui.Actions
 import io.github.arka01.cardash.ui.TerminalApp
 
@@ -33,6 +36,9 @@ class MainActivity : ComponentActivity() {
             stop = { Dash.stop() },
             pickAdapter = ::pickAdapter,
             share = ::share,
+            keyTest = ::keyTest,
+            shareTest = ::shareTest,
+            markKey = { Dash.markKey(it) },
         )
         setContent { TerminalApp(adapterName, actions) }
 
@@ -45,16 +51,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connect() {
+        val adapter = readyAdapter() ?: return
+        Dash.startLive(this, adapter)
+    }
+
+    private fun keyTest() {
+        val adapter = readyAdapter() ?: return
+        Dash.startKeyTest(this, adapter)
+    }
+
+    /** The chosen adapter, or null after asking for the permission / a choice first. */
+    private fun readyAdapter(): SavedAdapter? {
         if (!Adapters.hasPermission(this)) {
             askPermission()
-            return
+            return null
         }
         val adapter = Adapters.chosen(this)
-        if (adapter == null) {
-            pickAdapter()
-            return
-        }
-        Dash.startLive(this, adapter)
+        if (adapter == null) pickAdapter()
+        return adapter
     }
 
     private fun pickAdapter() {
@@ -83,6 +97,24 @@ class MainActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_TEXT, Report.full(Dash.state.value))
         }
         startActivity(Intent.createChooser(send, "Share readings"))
+    }
+
+    /** Sends the newest KEY TEST file (CSV) as an attachment, e.g. by email. */
+    private fun shareTest() {
+        val file = Dash.latestKeyTest(this)
+        if (file == null) {
+            Toast.makeText(this, "No key test recorded yet", Toast.LENGTH_LONG).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_SUBJECT, "Car Dash key test ${file.name}")
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri(file.name, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(send, "Share key test"))
     }
 
     private fun askPermission() {

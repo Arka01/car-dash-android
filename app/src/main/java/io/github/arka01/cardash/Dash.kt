@@ -6,14 +6,18 @@ import io.github.arka01.cardash.obd.ObdSession
 import io.github.arka01.cardash.obd.SavedAdapter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class Mode { OFF, LIVE, DEMO }
+enum class Mode { OFF, LIVE, DEMO, TEST }
 
 /** One engine value: the number (for bars, warnings, gear) and the text to show. */
 data class Reading(val pid: Int, val name: String, val number: Double?, val text: String, val time: Long)
+
+/** The KEY TEST in the DEV tab: which file it writes, the key position tapped, the latest rows. */
+data class TestInfo(val file: String, val label: String, val rows: Int = 0, val recent: List<String> = emptyList())
 
 /** Everything the screens show; replaced as a whole on every change. */
 data class Snapshot(
@@ -26,6 +30,7 @@ data class Snapshot(
     val roundsPerSec: Double = 0.0,                 // how often RPM and speed refresh
     val fastRead: String = "",
     val log: List<String> = emptyList(),
+    val test: TestInfo? = null,
 ) {
     fun number(pid: Int): Double? = readings[pid]?.number
 }
@@ -58,6 +63,39 @@ object Dash {
         DemoPlayer.start(context, gen)
     }
 
+    /**
+     * KEY TEST: records battery voltage, which car computers answer and network traffic about
+     * once a second into files/dev/keytest_<date>_<time>.csv, labelled with the key position
+     * tapped in the DEV tab. Used to work out how to tell LOCK / ACC / ON / START / RUN apart.
+     */
+    fun startKeyTest(context: Context, adapter: SavedAdapter) {
+        stopSources()
+        val gen = ++generation
+        val dir = File(context.filesDir, DEV_DIR).apply { mkdirs() }
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val file = File(dir, "keytest_$stamp.csv")
+        store.value = Snapshot(
+            mode = Mode.TEST, status = "Key test: connecting…", adapterName = adapter.name,
+            test = TestInfo(file.name, KeyMarks.label),
+        )
+        ObdSession.start(context, adapter, gen, keyTest = file)
+    }
+
+    /** The key position the user just tapped (DEV tab); goes into the next KEY TEST row. */
+    fun markKey(label: String) {
+        KeyMarks.mark(label)
+        synchronized(this) {
+            val s = store.value
+            store.value = s.copy(test = s.test?.copy(label = label))
+        }
+    }
+
+    /** The newest KEY TEST file, if any, for sharing. */
+    fun latestKeyTest(context: Context): File? =
+        File(context.filesDir, DEV_DIR).listFiles { f -> f.name.startsWith("keytest_") }?.maxByOrNull { it.name }
+
+    const val DEV_DIR = "dev"
+
     fun stop() {
         stopSources()
         generation++
@@ -81,4 +119,21 @@ object Dash {
     fun log(gen: Int, line: String) = update(gen) {
         it.copy(log = (it.log + "${clock.format(Date())} $line").takeLast(60))
     }
+}
+
+/** Key position labels from the DEV tab, read by the KEY TEST loop on another thread. */
+object KeyMarks {
+    val POSITIONS = listOf("LOCK", "ACC", "ON", "START", "RUN")
+
+    @Volatile var label = "LOCK"
+        private set
+    @Volatile private var tapped: String? = null
+
+    fun mark(position: String) {
+        label = position
+        tapped = position
+    }
+
+    /** The position tapped since the last row, if any (marks the exact moment of the change). */
+    fun takeTap(): String? = tapped.also { tapped = null }
 }

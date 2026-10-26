@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Folders the DEV tab may share: files/dev (key tests). -->
+<paths>
+    <files-path name="dev" path="dev/" />
+</paths>

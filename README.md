@@ -76,13 +76,13 @@ The bottom line has the keys:
 |---|---|
 | **[DASH]** | Big speed and gear, RPM and its bar, pedal and throttle bars, temperatures, warnings, then ENGINE / FUEL / AIR / CAR details |
 | **[ALL]** | Every value the engine computer reports (about 50), by PID number |
-| **[LOG]** | Connection log, fast-read status, **[ADAPTER]** (choose the vLinker) and **[SHARE]** |
+| **[DEV]** | **[ADAPTER]** (choose the vLinker), **[SHARE LOG]**, the **KEY TEST**, fast-read status and the connection log |
 | **[LIVE]** | Connect to the car (live data) |
 | **[DEMO]** | Replay 8 minutes of a real Tiago drive (24 Oct 2026), on loop. No car or adapter needed |
-| **[STOP] / [STOP DEMO]** | Stop |
+| **[STOP] / [STOP DEMO] / [STOP TEST]** | Stop |
 
 **Top line:** `● LIVE` (green) = real data from the car, `◆ DEMO` (amber) = the recorded drive,
-`○ OFF` = nothing running. The second line shows the status, how many rounds per second
+`◇ TEST` (amber) = KEY TEST running, `○ OFF` = nothing running. The second line shows the status, how many rounds per second
 RPM/speed refresh, and `fast` or `slow` reading.
 
 **Colours:** green = fine, **amber** = warning, **red** = alarm, dim = missing or older than 10 s.
@@ -103,7 +103,7 @@ it shows `1`. Reverse can't be told apart from 1st gear (OBD speed is never nega
 **Fast reading:** RPM, speed, load, throttle, pedal and torque are read every round; other values
 every 3rd, 10th or 50th round. Up to 6 values are asked for in one question. This is
 self-tested at connect; if it doesn't work, the app reads one value at a time (`slow`), which
-always works. **[LOG]** shows the result (`fast read: on: …` or `off: reason`).
+always works. **[DEV]** shows the result (`fast read: on: …` or `off: reason`).
 
 ---
 
@@ -117,15 +117,33 @@ on DASH must be visible without scrolling.
 
 1. Close **Car Scanner** first. Only one app can talk to the adapter at a time.
 2. Open **Car Dash** → allow **Nearby devices** (needed for Bluetooth).
-3. **[LOG] → [ADAPTER]:** should show the vLinker. If not, tap it and choose the vLinker.
+3. **[DEV] → [ADAPTER]:** should show the vLinker. If not, tap it and choose the vLinker.
 4. **[LIVE].** The status goes *Connecting… → Setting up adapter… → Finding sensors… →
    Reading all values once… → Testing fast read… → Connected*.
-5. **[LOG]:** `fast read: on: …` is the goal. The second line on top should show several
+5. **[DEV]:** `fast read: on: …` is the goal. The second line on top should show several
    rounds per second (e.g. `8.0/s`).
-6. **[LOG] → [SHARE]** and send the text. It contains every value plus the connection log.
+6. **[DEV] → [SHARE LOG]** and send the text. It contains every value plus the connection log.
 
 The AMT computer (7E9) is listed in the log but not read: it refuses direct requests, and its
 9 values only repeat the engine's (no gear).
+
+---
+
+## KEY TEST (DEV tab)
+
+Records, about once a second, what the OBD port shows at each key position, so the app can
+later tell LOCK / ACC / ON / START / RUN apart. Each row: battery voltage at the port
+(3 readings), which car computers answer, the engine's RPM, and how many messages the car's
+network carries (the adapter only listens).
+
+1. Key at **LOCK**, Car Scanner closed. **[DEV] → [START TEST]**, wait for rows to appear.
+2. Tap the position **every time you turn the key**, wait ~20 s at each:
+   **[LOCK]** → **[ACC]** → **[ON]** → **[START]** (tap as you crank) → **[RUN]** (idle ~30 s)
+   → turn the engine off and tap where the key ends up (**[LOCK]** or **[ACC]**), wait ~2 minutes
+   (the engine computer stays awake for a while after the engine stops).
+3. **[STOP TEST]**, then **[SHARE TEST]** to send the CSV file.
+
+Files are kept in the app (`files/dev/keytest_<date>_<time>.csv`); **[SHARE TEST]** sends the newest.
 
 ---
 
@@ -154,7 +172,7 @@ which needs a Play developer account. Until then, only the phone screen is usabl
 | *No car computer answered (ignition on?)* | Turn the ignition on, then Stop → Connect |
 | Values show `NO DATA` or `refused` | That computer didn't answer that value this round; share the text |
 | Values are dim | Not updated for 10 s or more (or never answered): the link has stalled |
-| **[LOG]** says `fast read: off: …` | Batching didn't pass the self-test; values are read one at a time (slower, still correct). Share the log |
+| **[DEV]** says `fast read: off: …` | Batching didn't pass the self-test; values are read one at a time (slower, still correct). Share the log |
 
 ---
 
@@ -163,7 +181,7 @@ which needs a Play developer account. Until then, only the phone screen is usabl
 | File | Purpose |
 |---|---|
 | `app/src/main/java/.../Dash.kt` | The hub: live or demo data in, one snapshot out to both screens |
-| `app/src/main/java/.../ui/Terminal.kt` | The phone's terminal look (DASH / ALL / LOG, portrait and landscape) |
+| `app/src/main/java/.../ui/Terminal.kt` | The phone's terminal look (DASH / ALL / DEV, portrait and landscape) |
 | `app/src/main/java/.../Tiago.kt` | Gear calculation and warning levels |
 | `app/src/main/java/.../demo/DemoPlayer.kt` + `assets/demo_drive.csv` | Demo mode: replays a recorded drive |
 | `app/src/main/java/.../obd/Elm327.kt` | Sends text commands to the adapter, joins multi-part answers |

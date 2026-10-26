@@ -43,6 +43,44 @@ class Elm327(socket: BluetoothSocket) {
             .map { it.trim() }
             .filter { it.isNotEmpty() && it != cmd }
     }
+
+    /**
+     * Listens to the car's network for [ms] without sending anything ("ATMA", monitor all;
+     * the adapter stays silent on the bus). Returns the messages seen, e.g. "0C9" + data bytes.
+     * Any character sent to the adapter stops the listening.
+     */
+    fun monitor(ms: Long): List<String> {
+        while (input.available() > 0) input.read(buffer)
+        output.write("ATMA\r".toByteArray(Charsets.US_ASCII))
+        output.flush()
+
+        val heard = StringBuilder()
+        val end = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < end) {
+            if (!readAvailable(heard)) Thread.sleep(2)
+        }
+        output.write("\r".toByteArray(Charsets.US_ASCII))   // stop listening
+        output.flush()
+        val deadline = System.currentTimeMillis() + 1500
+        while (!heard.contains('>')) {
+            if (System.currentTimeMillis() > deadline) throw IOException("Adapter didn't stop listening")
+            if (!readAvailable(heard)) Thread.sleep(2)
+        }
+        return heard.substring(0, heard.indexOf('>'))
+            .split('\r', '\n')
+            .map { it.trim().replace(" ", "") }
+            .filter { it.length >= 5 && it.length % 2 == 1 && it.all { c -> c.isHex() } }
+    }
+
+    /** Appends whatever the adapter has sent so far; false if there was nothing. */
+    private fun readAvailable(into: StringBuilder): Boolean {
+        val available = input.available()
+        if (available <= 0) return false
+        val n = input.read(buffer, 0, minOf(available, buffer.size))
+        if (n < 0) throw IOException("Adapter closed the connection")
+        into.append(String(buffer, 0, n, Charsets.US_ASCII))
+        return true
+    }
 }
 
 /**
