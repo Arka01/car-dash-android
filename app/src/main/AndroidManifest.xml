@@ -7,10 +7,6 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
 
-    <!-- Android Auto: registering as a navigation app is what lets us draw our own screen. -->
-    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
-    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
-
     <application
         android:label="Car Dash"
         android:icon="@drawable/ic_launcher"
@@ -37,7 +33,9 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.NAVIGATION" />
+                <!-- IoT, not navigation: Android Auto hides sideloaded navigation apps
+                     (build 1, 2026-10-26), so the car screen uses Google's list layout. -->
+                <category android:name="androidx.car.app.category.IOT" />
             </intent-filter>
         </service>
     </application>

@@ -16,5 +16,5 @@ class CarDashService : CarAppService() {
 }
 
 class CarDashSession : Session() {
-    override fun onCreateScreen(intent: Intent): Screen = SensorScreen(carContext)
+    override fun onCreateScreen(intent: Intent): Screen = SensorListScreen(carContext)
 }

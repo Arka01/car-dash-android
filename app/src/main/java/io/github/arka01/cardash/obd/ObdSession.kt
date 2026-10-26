@@ -44,6 +44,7 @@ data class Snapshot(
 object ObdSession {
     private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     private const val PROTOCOL = "6"   // ISO 15765-4 CAN 11 bit 500 kbaud, from the Tiago's car.json
+    private const val ENGINE = "7E8"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -107,6 +108,10 @@ object ObdSession {
         for ((header, pids) in modules) {
             log("${moduleName(header)}: ${pids.size} sensors ${pids.joinToString(" ") { "%02X".format(it) }}")
         }
+        // Only the engine computer is read: the AMT (7E9) refuses direct requests, and its
+        // 9 values just repeat the engine's (test drive 2026-10-26).
+        val engineOnly = modules.filterKeys { it == ENGINE }
+        if (engineOnly.isEmpty()) throw IOException("The engine computer (7E8) didn't answer")
 
         // Reading loop: ask each computer directly (ATSH) for each of its sensors.
         // The trailing "1" tells the adapter to stop waiting after the first answer.
@@ -116,7 +121,7 @@ object ObdSession {
         setStatus("Connected")
         while (true) {
             val sweepStart = System.currentTimeMillis()
-            for ((header, pids) in modules) {
+            for ((header, pids) in engineOnly) {
                 elm.command("ATSH" + requestHeader(header))
                 for (pid in pids) {
                     var answer = elm.command("01%02X%s".format(pid, countSuffix))
