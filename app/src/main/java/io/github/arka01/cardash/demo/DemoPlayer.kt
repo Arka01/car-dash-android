@@ -37,11 +37,17 @@ object DemoPlayer {
             Dash.update(gen) { it.copy(status = "Playing recorded drive", fastRead = "demo") }
             var rounds = 0
             while (isActive) {
-                val started = System.currentTimeMillis()
+                var started = System.currentTimeMillis()
                 var previous = System.currentTimeMillis()
                 var rate = 0.0
                 for (row in rows) {
-                    val wait = started + (row.t * 1000).toLong() - System.currentTimeMillis()
+                    var wait = started + (row.t * 1000).toLong() - System.currentTimeMillis()
+                    if (wait < -1000) {
+                        // Fell behind (phone asleep, e.g. during a call): carry on from here
+                        // instead of rushing through the missed part.
+                        started -= wait
+                        wait = 0
+                    }
                     if (wait > 0) delay(wait)
                     val now = System.currentTimeMillis()
                     val instant = 1000.0 / maxOf(now - previous, 1L)

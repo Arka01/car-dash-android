@@ -1,5 +1,6 @@
 package io.github.arka01.cardash.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicText
@@ -23,7 +25,10 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -74,6 +79,11 @@ private const val CAR_LINES = 3f
 
 private val LocalTerm = staticCompositionLocalOf { TextStyle() }
 
+/** Size of one character cell in pixels, for drawing bars exactly as wide as text. */
+private class Cell(val width: Float, val height: Float)
+
+private val LocalCell = staticCompositionLocalOf { Cell(10f, 12f) }
+
 private enum class Tab { DASH, ALL, LOG }
 
 /** What the screen can ask the activity to do. */
@@ -113,7 +123,7 @@ fun TerminalApp(adapterName: String?, actions: Actions) {
         val fontSize = with(density) { fontPx.toSp() }
         val style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = fontSize, lineHeight = fontSize * LINE, color = GREEN)
 
-        CompositionLocalProvider(LocalTerm provides style) {
+        CompositionLocalProvider(LocalTerm provides style, LocalCell provides Cell(fontPx * CHAR, fontPx * LINE)) {
             Column(Modifier.fillMaxSize()) {
                 Header(snap, now, fitCols)
                 Rule(fitCols)
@@ -168,14 +178,38 @@ private fun AnnotatedString.Builder.put(text: String, color: Color = GREEN, size
     withStyle(SpanStyle(color = color, fontSize = size)) { append(text) }
 }
 
-/** A text bar like [█████░░░░], coloured by where each cell sits on the scale. */
-private fun AnnotatedString.Builder.bar(value: Double?, max: Double, cells: Int, colorAt: (Double) -> Color = { GREEN }) {
+/**
+ * A bar like [█████░░░░] after some text: [cells] character cells wide. Drawn as rectangles,
+ * because the block characters come from a fallback font that is wider than the monospace
+ * text (bars overflowed in build 4). Each filled cell is coloured by where it sits on the scale.
+ */
+@Composable
+private fun BarLine(
+    value: Double?,
+    max: Double,
+    cells: Int,
+    colorAt: (Double) -> Color = { GREEN },
+    before: AnnotatedString.Builder.() -> Unit = {},
+) {
+    val cell = LocalCell.current
+    val density = LocalDensity.current
     val filled = if (value == null) 0 else ((value / max).coerceIn(0.0, 1.0) * cells).roundToInt()
-    put("[", DIM)
-    for (i in 0 until cells) {
-        if (i < filled) put("█", colorAt((i + 0.5) / cells * max)) else put("░", DIM)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Line { before(); put("[", DIM) }
+        Canvas(Modifier.size(with(density) { (cells * cell.width).toDp() }, with(density) { cell.height.toDp() })) {
+            val w = size.width / cells
+            val top = size.height * 0.15f
+            val h = size.height * 0.7f
+            for (i in 0 until cells) {
+                if (i < filled) {
+                    drawRect(colorAt((i + 0.5) / cells * max), Offset(i * w, top), Size(w + 0.5f, h))
+                } else {
+                    drawRect(DIM.copy(alpha = 0.35f), Offset(i * w + w * 0.15f, top), Size(w * 0.7f, h))
+                }
+            }
+        }
+        Line { put("]", DIM) }
     }
-    put("]", DIM)
 }
 
 /** "label   value" in a fixed width, value right-aligned. */
@@ -289,18 +323,16 @@ private fun DriveBlock(s: Snapshot, now: Long) {
         put("RPM ", DIM, base)
         put((rpm?.roundToInt()?.toString() ?: "--").padStart(5), s.tint(0x0C, now) { Tiago.rpmLevel(it) })
     }
-    Line { bar(rpm, Tiago.RPM_SCALE, PANE - 2) { Tiago.rpmLevel(it).color() } }
-    Line {
+    BarLine(rpm, Tiago.RPM_SCALE, PANE - 2, colorAt = { Tiago.rpmLevel(it).color() })
+    BarLine(s.number(0x5A), 100.0, PANE - 13) {
         put("PEDAL ", DIM)
         put(s.f(0x5A, "%.0f%%").padStart(4), s.tint(0x5A, now))
         put(" ")
-        bar(s.number(0x5A), 100.0, PANE - 13)
     }
-    Line {
+    BarLine(s.number(0x45), 100.0, PANE - 13) {
         put("THROT ", DIM)
         put(s.f(0x45, "%.0f%%").padStart(4), s.tint(0x45, now))
         put(" ")
-        bar(s.number(0x45), 100.0, PANE - 13)
     }
     Line {
         put("COOL ", DIM)
