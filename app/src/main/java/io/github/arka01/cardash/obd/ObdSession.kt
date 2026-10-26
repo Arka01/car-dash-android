@@ -42,9 +42,6 @@ private val PERIOD: Map<Int, Int> =
 
 private val VOLTS = Regex("""(\d{1,2}\.\d{1,2})\s*[Vv]""")
 
-/** Values that keep counting (run time, distances, minutes): skipped when comparing reads. */
-private val COUNTERS = setOf(0x1F, 0x21, 0x30, 0x31, 0x4D, 0x4E)
-
 /** Values read together in one question (or one by one if batching is off). */
 private class Group(val pids: List<Int>, val period: Int, val phase: Int) {
     var frames = 0       // answer lines seen the first time; lets the adapter stop waiting early
@@ -437,42 +434,38 @@ object ObdSession {
         }
 
         /**
-         * Switches batching on only if every group's combined answer has exactly its values,
-         * slow-changing values agree with the normal reads, and it's clearly faster.
+         * Fast read is the default. A group is only switched off if its combined answer doesn't
+         * contain exactly its values with the bytes lining up (the real danger: wrong values).
+         * Values aren't compared with the normal reads: they change between two moments (a run
+         * time of 85 vs 88 s switched fast read off for a whole drive on 2026-10-26).
          */
         private fun selfTest(groups: List<Group>, singleMs: Map<Int, Long>) {
-            fun off(reason: String) {
-                groups.forEach { it.batched = false }
-                Dash.update(gen) { it.copy(fastRead = "off: $reason") }
-                log("Fast read off: $reason")
-            }
             status("Testing fast read…")
             val testable = groups.filter { g -> g.pids.size > 1 && g.pids.all { it in sizes } }
             groups.filter { it !in testable }.forEach { it.batched = false }
-            if (testable.isEmpty()) return off("nothing to combine")
 
+            var on = 0
             var combinedMs = 0L
             var normalMs = 0L
             for (group in testable) {
                 askBatch(group)   // the first time teaches us how many answer lines to expect
                 val started = System.currentTimeMillis()
                 val got = askBatch(group)
+                val names = group.pids.joinToString(" ") { "%02X".format(it) }
+                if (got == null || got.keys != group.pids.toSet()) {
+                    group.batched = false
+                    log("Fast read off for $names: incomplete answer")
+                    continue
+                }
+                on++
                 combinedMs += System.currentTimeMillis() - started
                 normalMs += group.pids.sumOf { singleMs[it] ?: 0L }
-                val names = group.pids.joinToString(" ") { "%02X".format(it) }
-                if (got == null || got.keys != group.pids.toSet()) return off("incomplete answer for $names")
-                for ((pid, data) in got) {
-                    if ((PERIOD[pid] ?: 50) < 10) continue   // fast-changing values may really differ
-                    if (pid in COUNTERS) continue            // clocks and distances keep counting
-                    val combined = Pids.decode(pid, data).number ?: continue
-                    val normal = readings[pid]?.number ?: continue
-                    if (kotlin.math.abs(combined - normal) > maxOf(1.0, 0.02 * kotlin.math.abs(normal))) {
-                        return off("%02X read %.4g combined vs %.4g normally".format(pid, combined, normal))
-                    }
-                }
             }
-            if (combinedMs * 1.5 > normalMs) return off("not faster (${combinedMs} vs ${normalMs} ms)")
-            val note = String.format(Locale.US, "on: %d groups, %d vs %d ms", testable.size, combinedMs, normalMs)
+            val note = if (on == 0) {
+                "off: no group answered correctly"
+            } else {
+                String.format(Locale.US, "on: %d of %d groups, %d vs %d ms", on, testable.size, combinedMs, normalMs)
+            }
             Dash.update(gen) { it.copy(fastRead = note) }
             log("Fast read $note")
         }

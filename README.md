@@ -116,10 +116,11 @@ The `>` line under the temperatures lists active warnings.
 gears (about 0.35 s per gear change). Below 10 km/h, while the AMT's clutch is still closing,
 it shows `1`. Reverse can't be told apart from 1st gear (OBD speed is never negative).
 
-**Fast reading:** RPM, speed, load, throttle, pedal and torque are read every round; other values
-every 3rd, 10th or 50th round. Up to 6 values are asked for in one question. This is
-self-tested at connect; if it doesn't work, the app reads one value at a time (`slow`), which
-always works. **[DEV]** shows the result (`fast read: on: …` or `off: reason`).
+**Fast reading (always on):** RPM, speed, load, throttle, pedal and torque are read every round;
+other values every 3rd, 10th or 50th round. Up to 6 values are asked for in one question. At
+connect each batch is checked once: a batch whose answer doesn't contain exactly its values is
+read one value at a time instead (`slow`); while driving, a batch that answers garbled 3 times in
+a row does the same. **[DEV]** shows the result (`fast read: on: …`).
 
 ---
 
