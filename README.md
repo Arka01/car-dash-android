@@ -68,15 +68,16 @@ cat ~/car-dash-signing/SIGNING_PASSWORD.txt; echo
 
 ## Using the app
 
-The screen is a terminal: 40 characters per line in portrait, two columns in landscape
-(just rotate the phone). The bottom line has the keys:
+The screen is a terminal: 30 characters per line, one column in portrait, two in landscape
+(just rotate the phone). The text size adjusts so the whole DASH page fits the screen.
+The bottom line has the keys:
 
 | Key | What it does |
 |---|---|
-| **[DASH]** | Speed, gear, RPM bar, pedal/throttle bars, temperatures, warnings, then ENGINE / FUEL / AIR / CAR details |
+| **[DASH]** | Big speed and gear, RPM and its bar, pedal and throttle bars, temperatures, warnings, then ENGINE / FUEL / AIR / CAR details |
 | **[ALL]** | Every value the engine computer reports (about 50), by PID number |
 | **[LOG]** | Connection log, fast-read status, **[ADAPTER]** (choose the vLinker) and **[SHARE]** |
-| **[CONNECT]** | Connect to the car (live data) |
+| **[LIVE]** | Connect to the car (live data) |
 | **[DEMO]** | Replay 8 minutes of a real Tiago drive (24 Oct 2026), on loop. No car or adapter needed |
 | **[STOP] / [STOP DEMO]** | Stop |
 
@@ -107,14 +108,15 @@ always works. **[LOG]** shows the result (`fast read: on: …` or `off: reason`)
 ## Test checklist
 
 **At your desk (no car):** **[DEMO]** → the values should move like a real drive: speed, gear
-changes, the RPM bar turning amber/red near 3500/4000. Try portrait and landscape.
+changes, the RPM bar turning amber/red near 3500/4000. Try portrait and landscape: everything
+on DASH must be visible without scrolling.
 
 **In the car (ignition ON or engine running):**
 
 1. Close **Car Scanner** first. Only one app can talk to the adapter at a time.
 2. Open **Car Dash** → allow **Nearby devices** (needed for Bluetooth).
 3. **[LOG] → [ADAPTER]:** should show the vLinker. If not, tap it and choose the vLinker.
-4. **[CONNECT].** The status goes *Connecting… → Setting up adapter… → Finding sensors… →
+4. **[LIVE].** The status goes *Connecting… → Setting up adapter… → Finding sensors… →
    Reading all values once… → Testing fast read… → Connected*.
 5. **[LOG]:** `fast read: on: …` is the goal. The second line on top should show several
    rounds per second (e.g. `8.0/s`).

@@ -6,17 +6,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -35,6 +32,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.Dash
@@ -49,9 +47,10 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /*
- * The phone screen: a green-on-black terminal. Every line is fixed-width monospace text
- * (40 characters per column), and the font size is chosen so 40 characters fill the width.
- * Portrait: one column. Landscape: two columns side by side (82 characters in total).
+ * The phone screen: a green-on-black terminal. Every line is fixed-width monospace text,
+ * 30 characters per column. Portrait: one column. Landscape: two columns side by side.
+ * The font size is the largest that fits both the width and the height, so the DASH tab
+ * always fits on one screen without scrolling.
  */
 
 private val GREEN = Color(0xFF33FF66)
@@ -60,8 +59,18 @@ private val AMBER = Color(0xFFFFB000)
 private val RED = Color(0xFFFF4D4D)
 private val BLACK = Color.Black
 
-private const val COLS = 40
+private const val PANE = 30       // characters per column
+private const val GAP = 2         // characters between the two landscape columns
+private const val CHAR = 0.6f     // a monospace character is ~0.6 of the font size wide
+private const val LINE = 1.2f     // line height, in font sizes
 private const val OLD_MS = 10_000
+
+// Height of each part in lines (bigger lines count by their size); used to fit the font.
+private const val FRAME_LINES = 5f     // header (2), two rules, the key bar
+private const val DRIVE_LINES = 9.5f   // speed (3), RPM (1.5), RPM bar, pedal, throttle, temps, warnings
+private const val ENGINE_LINES = 5f
+private const val FUEL_AIR_LINES = 5f
+private const val CAR_LINES = 3f
 
 private val LocalTerm = staticCompositionLocalOf { TextStyle() }
 
@@ -89,34 +98,51 @@ fun TerminalApp(adapterName: String?, actions: Actions) {
 
     BoxWithConstraints(Modifier.fillMaxSize().background(BLACK).safeDrawingPadding().padding(4.dp)) {
         val landscape = maxWidth > maxHeight
-        val cols = if (landscape) COLS * 2 + 2 else COLS
-        // A monospace character is ~0.6 of the font size wide.
-        val fontSize = with(LocalDensity.current) { (constraints.maxWidth / (cols * 0.6f)).toSp() }
-        val style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = fontSize, color = GREEN)
+        val density = LocalDensity.current
+        val keyPaddingPx = with(density) { 20.dp.toPx() }
+        val cols = if (landscape) PANE * 2 + GAP else PANE
+        val lines = if (landscape) {
+            FRAME_LINES + maxOf(DRIVE_LINES + CAR_LINES, ENGINE_LINES + FUEL_AIR_LINES)
+        } else {
+            FRAME_LINES + DRIVE_LINES + ENGINE_LINES + FUEL_AIR_LINES + CAR_LINES
+        }
+        val byWidth = constraints.maxWidth / (cols * CHAR)
+        val byHeight = (constraints.maxHeight - keyPaddingPx) / (lines * LINE)
+        val fontPx = minOf(byWidth, byHeight) * 0.97f
+        val fitCols = (constraints.maxWidth / (fontPx * CHAR)).toInt()   // what actually fits across
+        val fontSize = with(density) { fontPx.toSp() }
+        val style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = fontSize, lineHeight = fontSize * LINE, color = GREEN)
 
         CompositionLocalProvider(LocalTerm provides style) {
             Column(Modifier.fillMaxSize()) {
-                Header(snap, now, cols)
-                Rule(cols)
+                Header(snap, now, fitCols)
+                Rule(fitCols)
                 Column(Modifier.weight(1f).fillMaxWidth()) {
                     when (tab) {
                         Tab.DASH -> if (landscape) {
-                            Row {
-                                Column(Modifier.weight(1f)) { DriveBlock(snap, now) }
-                                Spacer(Modifier.width(8.dp))
-                                Column(Modifier.weight(1f)) { DetailBlock(snap, now) }
+                            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Column { DriveBlock(snap, now) }
+                                    Column { CarBlock(snap, now) }
+                                }
+                                Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Column { EngineBlock(snap, now) }
+                                    Column { FuelAirBlock(snap, now) }
+                                }
                             }
                         } else {
-                            Column(Modifier.verticalScroll(rememberScrollState())) {
-                                DriveBlock(snap, now)
-                                DetailBlock(snap, now)
+                            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                                Column { DriveBlock(snap, now) }
+                                Column { EngineBlock(snap, now) }
+                                Column { FuelAirBlock(snap, now) }
+                                Column { CarBlock(snap, now) }
                             }
                         }
                         Tab.ALL -> AllValues(snap, now, perRow = if (landscape) 2 else 1)
                         Tab.LOG -> LogView(snap, adapterName, actions)
                     }
                 }
-                Rule(cols)
+                Rule(fitCols)
                 BottomBar(tab, snap, actions) { tab = it }
             }
         }
@@ -125,20 +151,21 @@ fun TerminalApp(adapterName: String?, actions: Actions) {
 
 // ---------------------------------------------------------------- building blocks
 
-/** One line of terminal text made of coloured parts. */
+/** One line of terminal text made of coloured parts; [scale] makes the whole line bigger. */
 @Composable
-private fun Line(scale: Float = 1f, build: AnnotatedString.Builder.() -> Unit) {
+private fun Line(scale: Float = 1f, wrap: Boolean = false, build: AnnotatedString.Builder.() -> Unit) {
     val style = LocalTerm.current
     BasicText(
         text = buildAnnotatedString(build),
-        style = style.copy(fontSize = style.fontSize * scale),
-        maxLines = 1,
-        softWrap = false,
+        style = style.copy(fontSize = style.fontSize * scale, lineHeight = style.lineHeight * scale),
+        maxLines = if (wrap) 4 else 1,
+        softWrap = wrap,
     )
 }
 
-private fun AnnotatedString.Builder.put(text: String, color: Color = GREEN) {
-    withStyle(SpanStyle(color = color)) { append(text) }
+/** Appends coloured text; [size] lets part of a big line stay small. */
+private fun AnnotatedString.Builder.put(text: String, color: Color = GREEN, size: TextUnit = TextUnit.Unspecified) {
+    withStyle(SpanStyle(color = color, fontSize = size)) { append(text) }
 }
 
 /** A text bar like [█████░░░░], coloured by where each cell sits on the scale. */
@@ -151,8 +178,8 @@ private fun AnnotatedString.Builder.bar(value: Double?, max: Double, cells: Int,
     put("]", DIM)
 }
 
-/** "label      value" in a fixed width, value right-aligned. */
-private fun AnnotatedString.Builder.cell(label: String, value: String, color: Color, width: Int = 18) {
+/** "label   value" in a fixed width, value right-aligned. */
+private fun AnnotatedString.Builder.cell(label: String, value: String, color: Color, width: Int = 14) {
     put(label, DIM)
     put(value.take(width - label.length - 1).padStart(width - label.length), color)
 }
@@ -161,7 +188,7 @@ private fun AnnotatedString.Builder.cell(label: String, value: String, color: Co
 private fun Rule(cols: Int) = Line { put("─".repeat(cols), DIM) }
 
 @Composable
-private fun Section(title: String) = Line { put("─ $title ", DIM); put("─".repeat(COLS - title.length - 3), DIM) }
+private fun Section(title: String) = Line { put("─ $title ", DIM); put("─".repeat(PANE - title.length - 3), DIM) }
 
 private fun Level.color() = when (this) {
     Level.OK -> GREEN
@@ -178,11 +205,10 @@ private fun Snapshot.fresh(pid: Int, now: Long): Boolean {
 private fun Snapshot.tint(pid: Int, now: Long, level: (Double?) -> Level = { Level.OK }): Color =
     if (fresh(pid, now)) level(number(pid)).color() else DIM
 
-private fun Snapshot.text(pid: Int) = readings[pid]?.text ?: "--"
+/** A value in a compact format, e.g. "%.0fkPa" -> "57kPa"; "--" if missing. */
+private fun Snapshot.f(pid: Int, format: String) = number(pid)?.let { String.format(Locale.US, format, it) } ?: "--"
 
-private fun Snapshot.compact(pid: Int, format: String) = number(pid)?.let { String.format(Locale.US, format, it) } ?: "--"
-
-// ---------------------------------------------------------------- header and bottom bar
+// ---------------------------------------------------------------- header and key bar
 
 private val clock = SimpleDateFormat("HH:mm", Locale.US)
 
@@ -194,10 +220,9 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
         Mode.OFF -> "○ OFF" to DIM
     }
     Line {
-        put("CAR DASH ${BuildConfig.VERSION_NAME}", GREEN)
-        put(" ─ TIAGO ─ ", DIM)
+        put("CAR DASH ${BuildConfig.VERSION_NAME} ", GREEN)
         put(mark, modeColor)
-        put(" ─ ", DIM)
+        put("  ")
         put(clock.format(Date(now)), GREEN)
     }
     val details = buildList {
@@ -216,7 +241,7 @@ private fun BottomBar(tab: Tab, s: Snapshot, actions: Actions, select: (Tab) -> 
         Key("LOG", tab == Tab.LOG) { select(Tab.LOG) }
         when (s.mode) {
             Mode.OFF -> {
-                Key("CONNECT", false, GREEN, actions.connect)
+                Key("LIVE", false, GREEN, actions.connect)
                 Key("DEMO", false, AMBER, actions.demo)
             }
             Mode.LIVE -> Key("STOP", false, GREEN, actions.stop)
@@ -243,9 +268,10 @@ private fun Key(label: String, selected: Boolean, color: Color = GREEN, onClick:
 
 // ---------------------------------------------------------------- DASH tab
 
-/** The values that matter while driving: speed, gear, RPM, pedal, temperatures. */
+/** The values that matter while driving: speed, gear, RPM, pedal, throttle, temperatures. */
 @Composable
 private fun DriveBlock(s: Snapshot, now: Long) {
+    val base = LocalTerm.current.fontSize
     val speed = s.number(0x0D)
     val rpm = s.number(0x0C)
     val gear = Tiago.gear(speed, rpm)
@@ -253,37 +279,38 @@ private fun DriveBlock(s: Snapshot, now: Long) {
     val oil = s.number(0x5C)
     val battery = s.number(0x42)
 
-    Line(scale = 2f) {
+    // 3 characters of speed at 3x = 9 columns, " km/h  G " = 9, gear up to 4 at 3x = 12: 30 in total.
+    Line(scale = 3f) {
         put((speed?.roundToInt()?.toString() ?: "--").padStart(3), s.tint(0x0D, now))
-        put(" km/h  ", DIM)
-        put("G ", DIM)
+        put(" km/h  G ", DIM, base)
         put(Tiago.gearName(gear), if (s.fresh(0x0D, now)) GREEN else DIM)
     }
-    Line {
-        put(" RPM ", DIM)
+    Line(scale = 1.5f) {
+        put("RPM ", DIM, base)
         put((rpm?.roundToInt()?.toString() ?: "--").padStart(5), s.tint(0x0C, now) { Tiago.rpmLevel(it) })
+    }
+    Line { bar(rpm, Tiago.RPM_SCALE, PANE - 2) { Tiago.rpmLevel(it).color() } }
+    Line {
+        put("PEDAL ", DIM)
+        put(s.f(0x5A, "%.0f%%").padStart(4), s.tint(0x5A, now))
         put(" ")
-        bar(rpm, Tiago.RPM_SCALE, 25) { Tiago.rpmLevel(it).color() }
+        bar(s.number(0x5A), 100.0, PANE - 13)
     }
     Line {
-        put(" PED ", DIM)
-        put(s.compact(0x5A, "%.0f%%").padStart(4), s.tint(0x5A, now))
+        put("THROT ", DIM)
+        put(s.f(0x45, "%.0f%%").padStart(4), s.tint(0x45, now))
         put(" ")
-        bar(s.number(0x5A), 100.0, 7)
-        put("  THR ", DIM)
-        put(s.compact(0x45, "%.0f%%").padStart(4), s.tint(0x45, now))
-        put(" ")
-        bar(s.number(0x45), 100.0, 7)
+        bar(s.number(0x45), 100.0, PANE - 13)
     }
     Line {
-        put(" COOL ", DIM)
-        put(s.compact(0x05, "%.0f°C").padStart(5), s.tint(0x05, now) { Tiago.coolantLevel(it) })
-        put("  OIL ", DIM)
-        put(s.compact(0x5C, "%.0f°C").padStart(5), s.tint(0x5C, now) { Tiago.oilLevel(it) })
-        put("  BAT ", DIM)
-        put(s.compact(0x42, "%.1fV").padStart(5), s.tint(0x42, now) { Tiago.batteryLevel(it) })
+        put("COOL ", DIM)
+        put(s.f(0x05, "%.0f°C").padStart(5), s.tint(0x05, now) { Tiago.coolantLevel(it) })
+        put(" OIL ", DIM)
+        put(s.f(0x5C, "%.0f°C").padStart(5), s.tint(0x5C, now) { Tiago.oilLevel(it) })
+        put(" BAT ", DIM)
+        put(s.f(0x42, "%.1fV").padStart(5), s.tint(0x42, now) { Tiago.batteryLevel(it) })
     }
-    // Spoken-style warnings in one place, so nothing amber/red goes unnoticed.
+    // All active warnings in one place, so nothing amber/red goes unnoticed.
     val alerts = buildList {
         if (Tiago.rpmLevel(rpm) == Level.ALARM) add("REDLINE" to RED)
         else if (Tiago.rpmLevel(rpm) == Level.WARN) add("SHIFT" to AMBER)
@@ -297,7 +324,7 @@ private fun DriveBlock(s: Snapshot, now: Long) {
         if (Tiago.batteryLevel(battery) != Level.OK) add("BATTERY" to Tiago.batteryLevel(battery).color())
     }
     Line {
-        put(" > ", DIM)
+        put("> ", DIM)
         if (alerts.isEmpty()) put("all normal", DIM)
         alerts.forEachIndexed { i, (text, color) ->
             if (i > 0) put(" · ", DIM)
@@ -306,55 +333,60 @@ private fun DriveBlock(s: Snapshot, now: Long) {
     }
 }
 
-/** Engine, fuel and car details in label/value pairs. */
-@Composable
-private fun DetailBlock(s: Snapshot, now: Long) {
-    Section("ENGINE")
-    Pair2(s, now, "load", 0x04, "timing", 0x0E)
-    Pair2(s, now, "MAP", 0x0B, "torque", 0x62)
-    Pair2(s, now, "trim S", 0x06, "trim L", 0x07, level2 = { Tiago.fuelTrimLevel(it) })
-    Line {
-        put(" ")
-        cell("λ cmd", s.text(0x44), s.tint(0x44, now))
-        put("  ")
-        cell("fuel", fuelSystemShort(s.number(0x03)), s.tint(0x03, now))
-    }
-    Section("FUEL")
-    Pair2(s, now, "level", 0x2F, "rate", 0x5E)
-    Section("AIR")
-    Pair2(s, now, "intake", 0x0F, "outside", 0x46, level1 = { Tiago.intakeLevel(it) })
-    Pair2(s, now, "baro", 0x33, "cat", 0x3C, level2 = { Tiago.catalystLevel(it) })
-    Section("CAR")
-    Line {
-        put(" ")
-        cell("battery", s.text(0x42), s.tint(0x42, now) { Tiago.batteryLevel(it) })
-        put("  ")
-        cell("port", s.adapterVoltage?.let { String.format(Locale.US, "%.1f V", it) } ?: "--", GREEN)
-    }
-    Line {
-        put(" ")
-        cell("run", s.number(0x1F)?.let { "%d:%02d".format(it.toInt() / 60, it.toInt() % 60) } ?: "--", s.tint(0x1F, now))
-        put("  ")
-        cell("since clr", s.text(0x31), s.tint(0x31, now))
-    }
-}
-
-/** Two label/value cells on one line, each coloured by its warning level. */
+/** Two label/value cells on one line (14 + 2 + 14 characters), each coloured by its level. */
 @Composable
 private fun Pair2(
     s: Snapshot,
     now: Long,
     l1: String,
     p1: Int,
+    f1: String,
     l2: String,
     p2: Int,
+    f2: String,
     level1: (Double?) -> Level = { Level.OK },
     level2: (Double?) -> Level = { Level.OK },
 ) = Line {
-    put(" ")
-    cell(l1, s.text(p1), s.tint(p1, now, level1))
+    cell(l1, s.f(p1, f1), s.tint(p1, now, level1))
     put("  ")
-    cell(l2, s.text(p2), s.tint(p2, now, level2))
+    cell(l2, s.f(p2, f2), s.tint(p2, now, level2))
+}
+
+@Composable
+private fun EngineBlock(s: Snapshot, now: Long) {
+    Section("ENGINE")
+    Pair2(s, now, "load", 0x04, "%.1f%%", "timing", 0x0E, "%.1f°")
+    Pair2(s, now, "MAP", 0x0B, "%.0fkPa", "torque", 0x62, "%.0f%%")
+    Pair2(s, now, "trim S", 0x06, "%+.1f%%", "trim L", 0x07, "%+.1f%%", level2 = { Tiago.fuelTrimLevel(it) })
+    Line {
+        cell("λ cmd", s.f(0x44, "%.3f"), s.tint(0x44, now))
+        put("  ")
+        cell("fuel", fuelSystemShort(s.number(0x03)), s.tint(0x03, now))
+    }
+}
+
+@Composable
+private fun FuelAirBlock(s: Snapshot, now: Long) {
+    Section("FUEL")
+    Pair2(s, now, "level", 0x2F, "%.1f%%", "rate", 0x5E, "%.2fL/h")
+    Section("AIR")
+    Pair2(s, now, "intake", 0x0F, "%.0f°C", "outside", 0x46, "%.0f°C", level1 = { Tiago.intakeLevel(it) })
+    Pair2(s, now, "baro", 0x33, "%.0fkPa", "cat", 0x3C, "%.0f°C", level2 = { Tiago.catalystLevel(it) })
+}
+
+@Composable
+private fun CarBlock(s: Snapshot, now: Long) {
+    Section("CAR")
+    Line {
+        cell("battery", s.f(0x42, "%.2fV"), s.tint(0x42, now) { Tiago.batteryLevel(it) })
+        put("  ")
+        cell("port", s.adapterVoltage?.let { String.format(Locale.US, "%.1fV", it) } ?: "--", GREEN)
+    }
+    Line {
+        cell("run", s.number(0x1F)?.let { "%d:%02d".format(it.toInt() / 60, it.toInt() % 60) } ?: "--", s.tint(0x1F, now))
+        put("  ")
+        cell("clr", s.f(0x31, "%.0fkm"), s.tint(0x31, now))
+    }
 }
 
 private fun fuelSystemShort(code: Double?) = when (code?.toInt()) {
@@ -375,11 +407,11 @@ private fun AllValues(s: Snapshot, now: Long, perRow: Int) {
         items(rows) { row ->
             Line {
                 row.forEachIndexed { i, r ->
-                    if (i > 0) put("  ")
+                    if (i > 0) put(" ".repeat(GAP))
                     val color = if (now - r.time < OLD_MS) GREEN else DIM
                     put("%02X ".format(r.pid), DIM)
-                    put(r.name.take(19).padEnd(20), DIM)
-                    put(r.text.take(17).padEnd(17), color)
+                    put(r.name.take(13).padEnd(14), DIM)
+                    put(r.text.take(13).padEnd(13), color)
                 }
             }
         }
@@ -393,9 +425,9 @@ private fun LogView(s: Snapshot, adapterName: String?, actions: Actions) {
             Key("ADAPTER: ${adapterName ?: "choose"}", false, GREEN, actions.pickAdapter)
             Key("SHARE", false, GREEN, actions.share)
         }
-        Line { put(" fast read: ${s.fastRead.ifEmpty { "-" }}", DIM) }
+        Line(wrap = true) { put("fast read: ${s.fastRead.ifEmpty { "-" }}", DIM) }
         LazyColumn {
-            items(s.log.reversed()) { line -> Line { put(" $line") } }
+            items(s.log.reversed()) { line -> Line(wrap = true) { put(line) } }
         }
     }
 }
