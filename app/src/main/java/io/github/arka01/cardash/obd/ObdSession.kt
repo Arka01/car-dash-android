@@ -5,72 +5,72 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
+import io.github.arka01.cardash.Dash
+import io.github.arka01.cardash.Reading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-/** One value from one car computer. */
-data class Reading(val module: String, val pid: Int, val name: String, val value: String, val time: Long)
+private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+private const val PROTOCOL = "6"   // ISO 15765-4 CAN 11 bit 500 kbaud, from the Tiago's car.json
+private const val ENGINE = "7E8"   // the engine computer's answers; it listens on 7E0
+private const val MAX_BATCH = 6    // the OBD standard allows up to 6 values per question
 
-/** Everything the screens show; replaced as a whole on every change. */
-data class Snapshot(
-    val status: String = "Not connected",
-    val adapterName: String? = null,
-    val adapterVoltage: String = "--",
-    val readings: List<Reading> = emptyList(),
-    val sweeps: Int = 0,
-    val sweepMs: Long = 0,
-    val log: List<String> = emptyList(),
-)
+/** How often each value is read, in rounds. Anything not listed: every 50th round. */
+private val PERIOD: Map<Int, Int> =
+    listOf(0x0C, 0x0D, 0x04, 0x45, 0x5A, 0x62).associateWith { 1 } +
+        listOf(0x0B, 0x0E, 0x06, 0x07, 0x44, 0x5E, 0x11, 0x49, 0x4A, 0x4C, 0x47, 0x43, 0x87, 0x9E, 0x34, 0x15, 0x61)
+            .associateWith { 3 } +
+        listOf(0x05, 0x0F, 0x5C, 0x46, 0x3C, 0x67, 0x42, 0x2F, 0x33, 0x1F, 0x2E, 0x03, 0x56).associateWith { 10 }
+
+/** Values read together in one question (or one by one if batching is off). */
+private class Group(val pids: List<Int>, val period: Int, val phase: Int) {
+    var frames = 0       // answer lines seen the first time; lets the adapter stop waiting early
+    var failures = 0
+    var batched = true
+}
 
 /**
- * The one connection to the vLinker, shared by the phone screen and the car screen.
- * Runs in the background: connect, find the supported sensors, then read them all
- * in a loop. If the link drops it retries every 5 seconds until stopped.
+ * The live connection to the vLinker. Runs in the background: connect, find the engine
+ * computer's values, then read them in a loop. If the link drops it retries every 5 s.
+ *
+ * Reading speed (each question to the car takes ~35 ms):
+ * - Priorities: RPM, speed, load, throttle, pedal and torque every round; the rest every
+ *   3rd, 10th or 50th round ([PERIOD]), so the dash values refresh several times a second.
+ * - Batching ("fast read", as in the Python dashboard's --fast-read): up to 6 values per
+ *   question. Self-tested at connect against normal reads; a group that keeps giving
+ *   garbled answers falls back to one value per question.
  */
 object ObdSession {
-    private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-    private const val PROTOCOL = "6"   // ISO 15765-4 CAN 11 bit 500 kbaud, from the Tiago's car.json
-    private const val ENGINE = "7E8"
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     @Volatile private var socket: BluetoothSocket? = null
 
-    private val _state = MutableStateFlow(Snapshot())
-    val state: StateFlow<Snapshot> = _state
-
     val isRunning: Boolean get() = job?.isActive == true
 
-    fun start(context: Context, adapter: SavedAdapter) {
+    fun start(context: Context, adapter: SavedAdapter, gen: Int) {
         if (isRunning) return
         val appContext = context.applicationContext
-        _state.value = Snapshot(status = "Connecting…", adapterName = adapter.name)
         val previous = job
         job = scope.launch {
             previous?.join()   // let a just-stopped loop finish closing its connection first
             while (isActive) {
                 try {
-                    connectAndRead(appContext, adapter.address)
+                    Reader(gen).connectAndRead(appContext, adapter.address)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     if (!isActive) break   // stop() closed the link on purpose
-                    log("Lost: ${e.message ?: e.javaClass.simpleName}")
-                    setStatus("Connection lost, retrying in 5 s")
+                    Dash.log(gen, "Lost: ${e.message ?: e.javaClass.simpleName}")
+                    Dash.update(gen) { it.copy(status = "Connection lost, retrying in 5 s") }
                 } finally {
                     closeSocket()
                 }
@@ -82,132 +82,268 @@ object ObdSession {
     fun stop() {
         job?.cancel()
         closeSocket()   // unblocks a connect() or read that is still waiting
-        setStatus("Stopped")
     }
 
-    @SuppressLint("MissingPermission")   // the screens check the permission before calling start()
-    private fun connectAndRead(context: Context, address: String) {
-        val bluetooth = context.getSystemService(BluetoothManager::class.java)?.adapter
-            ?: throw IOException("This phone has no Bluetooth")
-        if (!bluetooth.isEnabled) throw IOException("Bluetooth is off")
-        val device = bluetooth.getRemoteDevice(address)
+    /** One connection attempt: everything here belongs to that attempt only. */
+    private class Reader(val gen: Int) {
+        private lateinit var elm: Elm327
+        private var countSuffix = true            // "010C1": stop waiting after 1 answer line
+        private val sizes = HashMap<Int, Int>()   // data bytes per value, learned from single reads
+        private val readings = HashMap<Int, Reading>()
 
-        setStatus("Connecting to ${device.name ?: address}…")
-        val elm = Elm327(openSocket(device))
-        log("Bluetooth connected")
+        private fun log(line: String) = Dash.log(gen, line)
+        private fun status(text: String) = Dash.update(gen) { it.copy(status = text) }
 
-        setStatus("Setting up adapter…")
-        for (cmd in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH1", "ATSP$PROTOCOL", "ATI", "ATRV")) {
-            val answer = elm.command(cmd, timeoutMs = if (cmd == "ATZ") 5000 else 2000)
-            log("$cmd → ${answer.joinToString(" | ")}")
+        @SuppressLint("MissingPermission")   // the screens check the permission before starting
+        fun connectAndRead(context: Context, address: String) {
+            val bluetooth = context.getSystemService(BluetoothManager::class.java)?.adapter
+                ?: throw IOException("This phone has no Bluetooth")
+            if (!bluetooth.isEnabled) throw IOException("Bluetooth is off")
+            val device = bluetooth.getRemoteDevice(address)
+
+            status("Connecting to ${device.name ?: address}…")
+            elm = Elm327(openSocket(device))
+            log("Bluetooth connected")
+
+            status("Setting up adapter…")
+            for (cmd in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH1", "ATSP$PROTOCOL", "ATI")) {
+                val answer = elm.command(cmd, timeoutMs = if (cmd == "ATZ") 5000 else 2000)
+                log("$cmd → ${answer.joinToString(" | ")}")
+            }
+
+            status("Finding sensors…")
+            val modules = findSupported()
+            for ((header, pids) in modules) {
+                log("${moduleName(header)}: ${pids.size} sensors ${pids.joinToString(" ") { "%02X".format(it) }}")
+            }
+            // Only the engine computer is read: the AMT (7E9) refuses direct requests, and its
+            // 9 values just repeat the engine's (test drive 2026-10-26).
+            val pids = modules[ENGINE] ?: throw IOException("The engine computer (7E8) didn't answer")
+            elm.command("ATSH7E0")   // from now on, ask the engine computer directly
+
+            // 1. One normal round: first values on screen, and each value's size and timing.
+            status("Reading all values once…")
+            val singleMs = HashMap<Int, Long>()
+            for (pid in pids) {
+                val started = System.currentTimeMillis()
+                readSingle(pid)
+                singleMs[pid] = System.currentTimeMillis() - started
+            }
+            publish()
+            readAdapterVoltage()
+
+            // 2. Groups by how often they're read; self-test the batches.
+            val groups = buildGroups(pids)
+            selfTest(groups, singleMs)
+
+            // 3. The reading loop.
+            status("Connected")
+            var round = 0
+            var rate = 0.0
+            var last = System.currentTimeMillis()
+            while (true) {
+                for (group in groups) {
+                    if ((round + group.phase) % group.period == 0) readGroup(group)
+                }
+                if (round % 10 == 5) readAdapterVoltage()
+                round++
+                val now = System.currentTimeMillis()
+                val instant = 1000.0 / maxOf(now - last, 1L)
+                rate = if (rate == 0.0) instant else rate * 0.9 + instant * 0.1
+                last = now
+                val r = round
+                val perSec = rate
+                Dash.update(gen) { it.copy(readings = readings.toMap(), rounds = r, roundsPerSec = perSec) }
+            }
         }
 
-        setStatus("Finding sensors…")
-        val modules = findSupported(elm)
-        if (modules.isEmpty()) throw IOException("No car computer answered (ignition on?)")
-        for ((header, pids) in modules) {
-            log("${moduleName(header)}: ${pids.size} sensors ${pids.joinToString(" ") { "%02X".format(it) }}")
-        }
-        // Only the engine computer is read: the AMT (7E9) refuses direct requests, and its
-        // 9 values just repeat the engine's (test drive 2026-10-26).
-        val engineOnly = modules.filterKeys { it == ENGINE }
-        if (engineOnly.isEmpty()) throw IOException("The engine computer (7E8) didn't answer")
-
-        // Reading loop: ask each computer directly (ATSH) for each of its sensors.
-        // The trailing "1" tells the adapter to stop waiting after the first answer.
-        val readings = LinkedHashMap<String, Reading>()
-        var countSuffix = "1"
-        var sweeps = 0
-        setStatus("Connected")
-        while (true) {
-            val sweepStart = System.currentTimeMillis()
-            for ((header, pids) in engineOnly) {
-                elm.command("ATSH" + requestHeader(header))
-                for (pid in pids) {
-                    var answer = elm.command("01%02X%s".format(pid, countSuffix))
-                    if (answer == listOf("?") && countSuffix.isNotEmpty()) {
-                        log("Adapter doesn't support the answer-count trick; reading without it")
-                        countSuffix = ""
-                        answer = elm.command("01%02X".format(pid))
+        /** Asks "which sensors do you have?" (01 00, 01 20, …) and collects the answers per computer. */
+        private fun findSupported(): Map<String, List<Int>> {
+            val supported = sortedMapOf<String, MutableList<Int>>()
+            var base = 0x00
+            while (base <= 0xE0) {
+                if (base != 0x00 && supported.values.none { base in it }) break
+                val answer = elm.command("01%02X".format(base), timeoutMs = 5000)
+                log("01%02X → %s".format(base, answer.joinToString(" | ")))
+                for ((header, d) in assembleCan11(answer)) {
+                    if (d.size < 6 || d[0] != 0x41 || d[1] != base) continue
+                    val pids = supported.getOrPut(header) { mutableListOf() }
+                    for (i in 0 until 32) {
+                        if (d[2 + i / 8] and (0x80 shr (i % 8)) != 0) pids += base + i + 1
                     }
-                    val value = valueFrom(answer, header, pid)
-                    readings["$header:$pid"] = Reading(moduleName(header), pid, Pids.name(pid), value, System.currentTimeMillis())
-                    _state.update { it.copy(readings = readings.values.toList()) }
+                }
+                base += 0x20
+            }
+            if (supported.isEmpty()) throw IOException("No car computer answered (ignition on?)")
+            // 0x20, 0x40, … only say "there are more"; they are not sensors.
+            return supported.mapValues { (_, pids) -> pids.filter { it % 0x20 != 0 } }
+        }
+
+        /** Sends a request, adding the answer-count digit if the adapter supports it. */
+        private fun ask(request: String, count: Int): List<String> {
+            if (countSuffix && count in 1..15) {
+                val answer = elm.command(request + "%X".format(count))
+                if (answer != listOf("?")) return answer
+                log("Adapter doesn't support the answer-count digit; reading without it")
+                countSuffix = false
+            }
+            return elm.command(request)
+        }
+
+        /** Reads one value the normal way and stores it. */
+        private fun readSingle(pid: Int) {
+            val answer = ask("01%02X".format(pid), 1)
+            val d = assembleCan11(answer)[ENGINE]
+            when {
+                d != null && d.size >= 2 && d[0] == 0x41 && d[1] == pid -> {
+                    val data = d.copyOfRange(2, d.size)
+                    sizes[pid] = data.size
+                    store(pid, data)
+                }
+                d != null && d.isNotEmpty() && d[0] == 0x7F -> storeText(pid, "refused")
+                else -> storeText(pid, answer.firstOrNull() ?: "NO DATA")
+            }
+        }
+
+        /** Reads a group: in one question if batching works, else value by value. */
+        private fun readGroup(group: Group) {
+            if (group.batched) {
+                val values = askBatch(group)
+                if (values != null) {
+                    group.failures = 0
+                    for ((pid, data) in values) store(pid, data)
+                    // Values the car left out this time are read the normal way.
+                    for (pid in group.pids) if (pid !in values) readSingle(pid)
+                    return
+                }
+                group.failures++
+                if (group.failures >= 3) {
+                    group.batched = false
+                    log("Fast read off for ${group.pids.joinToString(" ") { "%02X".format(it) }}: garbled answers")
                 }
             }
-            val voltage = elm.command("ATRV").firstOrNull() ?: "--"
-            sweeps++
-            val sweepMs = System.currentTimeMillis() - sweepStart
-            _state.update { it.copy(adapterVoltage = voltage, sweeps = sweeps, sweepMs = sweepMs) }
+            for (pid in group.pids) readSingle(pid)
         }
-    }
 
-    /** Opens the Bluetooth serial link; some adapters only accept the "insecure" variant. */
-    @SuppressLint("MissingPermission")
-    private fun openSocket(device: BluetoothDevice): BluetoothSocket {
-        for (secure in listOf(true, false)) {
-            val s = if (secure) device.createRfcommSocketToServiceRecord(SPP_UUID)
-            else device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
-            socket = s   // so stop() can interrupt a connect() that is still waiting
-            try {
-                s.connect()
-                return s
-            } catch (e: IOException) {
-                closeSocket()
-                if (!secure) throw e
-                log("Secure connect failed (${e.message}), trying insecure")
+        /**
+         * One question for all values of a group, e.g. "010C0D04455A62" -> {0x0C: [..], 0x0D: [..]}.
+         * Empty map: the car didn't answer (e.g. ignition off). null: garbled (bytes don't line up).
+         */
+        private fun askBatch(group: Group): Map<Int, IntArray>? {
+            val request = "01" + group.pids.joinToString("") { "%02X".format(it) }
+            val answer = ask(request, group.frames)
+            val d = assembleCan11(answer)[ENGINE] ?: return emptyMap()
+            if (d.isEmpty() || d[0] != 0x41) return emptyMap()   // silence or a refusal
+            val values = LinkedHashMap<Int, IntArray>()
+            var i = 1
+            while (i < d.size) {
+                val pid = d[i]
+                val size = if (pid in group.pids) sizes[pid] else null
+                if (size == null) {
+                    if ((i until d.size).all { d[it] == 0 }) break   // padding at the end
+                    return null   // an unexpected value: the bytes don't line up
+                }
+                if (i + 1 + size > d.size) return null   // cut off
+                values[pid] = d.copyOfRange(i + 1, i + 1 + size)
+                i += 1 + size
             }
+            if (group.frames == 0) group.frames = answer.count { it.replace(" ", "").startsWith(ENGINE) }
+            return values
         }
-        throw IOException("unreachable")
-    }
 
-    /** Asks "which sensors do you have?" (01 00, 01 20, …) and collects the answers per computer. */
-    private fun findSupported(elm: Elm327): Map<String, List<Int>> {
-        val supported = sortedMapOf<String, MutableList<Int>>()
-        var base = 0x00
-        while (base <= 0xE0) {
-            if (base != 0x00 && supported.values.none { base in it }) break
-            val answer = elm.command("01%02X".format(base), timeoutMs = 5000)
-            log("01%02X → %s".format(base, answer.joinToString(" | ")))
-            for (reply in parseCan11(answer)) {
-                val d = reply.data
-                if (d.size < 6 || d[0] != 0x41 || d[1] != base) continue
-                val pids = supported.getOrPut(reply.header) { mutableListOf() }
-                for (i in 0 until 32) {
-                    if (d[2 + i / 8] and (0x80 shr (i % 8)) != 0) pids += base + i + 1
+        private fun buildGroups(pids: List<Int>): List<Group> {
+            val groups = mutableListOf<Group>()
+            val answered = pids.filter { it in sizes }
+            for (period in listOf(1, 3, 10, 50)) {
+                val chunks = answered.filter { (PERIOD[it] ?: 50) == period }.chunked(MAX_BATCH)
+                chunks.forEachIndexed { index, chunk -> groups += Group(chunk, period, index % period) }
+            }
+            // Values that didn't answer at connect: retried one by one now and then.
+            val silent = pids.filter { it !in sizes }
+            if (silent.isNotEmpty()) groups += Group(silent, 50, 25).also { it.batched = false }
+            return groups
+        }
+
+        /**
+         * Switches batching on only if every group's combined answer has exactly its values,
+         * slow-changing values agree with the normal reads, and it's clearly faster.
+         */
+        private fun selfTest(groups: List<Group>, singleMs: Map<Int, Long>) {
+            fun off(reason: String) {
+                groups.forEach { it.batched = false }
+                Dash.update(gen) { it.copy(fastRead = "off: $reason") }
+                log("Fast read off: $reason")
+            }
+            status("Testing fast read…")
+            val testable = groups.filter { g -> g.pids.size > 1 && g.pids.all { it in sizes } }
+            groups.filter { it !in testable }.forEach { it.batched = false }
+            if (testable.isEmpty()) return off("nothing to combine")
+
+            var combinedMs = 0L
+            var normalMs = 0L
+            for (group in testable) {
+                askBatch(group)   // the first time teaches us how many answer lines to expect
+                val started = System.currentTimeMillis()
+                val got = askBatch(group)
+                combinedMs += System.currentTimeMillis() - started
+                normalMs += group.pids.sumOf { singleMs[it] ?: 0L }
+                val names = group.pids.joinToString(" ") { "%02X".format(it) }
+                if (got == null || got.keys != group.pids.toSet()) return off("incomplete answer for $names")
+                for ((pid, data) in got) {
+                    if ((PERIOD[pid] ?: 50) < 10) continue   // fast-changing values may really differ
+                    val combined = Pids.decode(pid, data).number ?: continue
+                    val normal = readings[pid]?.number ?: continue
+                    if (kotlin.math.abs(combined - normal) > maxOf(1.0, 0.02 * kotlin.math.abs(normal))) {
+                        return off("%02X read %.4g combined vs %.4g normally".format(pid, combined, normal))
+                    }
                 }
             }
-            base += 0x20
+            if (combinedMs * 1.5 > normalMs) return off("not faster (${combinedMs} vs ${normalMs} ms)")
+            val note = String.format(Locale.US, "on: %d groups, %d vs %d ms", testable.size, combinedMs, normalMs)
+            Dash.update(gen) { it.copy(fastRead = note) }
+            log("Fast read $note")
         }
-        // 0x20, 0x40, … only say "there are more"; they are not sensors.
-        return supported.mapValues { (_, pids) -> pids.filter { it % 0x20 != 0 } }
-    }
 
-    private fun valueFrom(answer: List<String>, header: String, pid: Int): String {
-        val reply = parseCan11(answer).firstOrNull { it.header == header } ?: return answer.firstOrNull() ?: "NO DATA"
-        val d = reply.data
-        return when {
-            d.size >= 2 && d[0] == 0x41 && d[1] == pid -> Pids.decode(pid, d.copyOfRange(2, d.size))
-            d.isNotEmpty() && d[0] == 0x7F -> "refused"
-            else -> "? " + d.joinToString(" ") { "%02X".format(it) }
+        private fun readAdapterVoltage() {
+            val volts = elm.command("ATRV").firstOrNull()?.trimEnd('V', 'v')?.toDoubleOrNull()
+            Dash.update(gen) { it.copy(adapterVoltage = volts) }
         }
-    }
 
-    /** Answers come from 7E8/7E9/…; requests to that computer go to 7E0/7E1/…. */
-    private fun requestHeader(replyHeader: String) = "%03X".format(replyHeader.toInt(16) - 8)
+        private fun store(pid: Int, data: IntArray) {
+            val value = Pids.decode(pid, data)
+            readings[pid] = Reading(pid, Pids.name(pid), value.number, value.text, System.currentTimeMillis())
+        }
 
-    private fun moduleName(header: String) = when (header) {
-        "7E8" -> "ENGINE 7E8"
-        "7E9" -> "AMT 7E9"
-        else -> "ECU $header"
-    }
+        private fun storeText(pid: Int, text: String) {
+            readings[pid] = Reading(pid, Pids.name(pid), null, text, System.currentTimeMillis())
+        }
 
-    private fun setStatus(status: String) = _state.update { it.copy(status = status) }
+        private fun publish() = Dash.update(gen) { it.copy(readings = readings.toMap()) }
 
-    private val clock = SimpleDateFormat("HH:mm:ss", Locale.US)
+        private fun moduleName(header: String) = when (header) {
+            "7E8" -> "ENGINE 7E8"
+            "7E9" -> "AMT 7E9"
+            else -> "ECU $header"
+        }
 
-    private fun log(line: String) = _state.update {
-        it.copy(log = (it.log + "${clock.format(Date())} $line").takeLast(40))
+        /** Opens the Bluetooth serial link; some adapters only accept the "insecure" variant. */
+        @SuppressLint("MissingPermission")
+        private fun openSocket(device: BluetoothDevice): BluetoothSocket {
+            for (secure in listOf(true, false)) {
+                val s = if (secure) device.createRfcommSocketToServiceRecord(SPP_UUID)
+                else device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
+                ObdSession.socket = s   // so stop() can interrupt a connect() that is still waiting
+                try {
+                    s.connect()
+                    return s
+                } catch (e: IOException) {
+                    ObdSession.closeSocket()
+                    if (!secure) throw e
+                    log("Secure connect failed (${e.message}), trying insecure")
+                }
+            }
+            throw IOException("unreachable")
+        }
     }
 
     private fun closeSocket() {

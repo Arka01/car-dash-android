@@ -4,8 +4,10 @@ Android app that reads live engine data from an OBD-II Bluetooth adapter (vLinke
 and shows it on the phone and on the car's Android Auto screen.
 Made for a 2023 Tata Tiago 1.2 petrol AMT (OBD protocol 6, CAN 11 bit 500 kbaud).
 
-**Version 0.1 (current):** a connection test. It finds every sensor the car's computers
-report and shows them all as plain text. Looks will come later.
+**Current version:** a green-on-black terminal dashboard on the phone (portrait and landscape),
+a **DEMO** mode that replays a real recorded drive (no car needed), and fast reading
+(RPM and speed several times a second). The Android Auto screen is a simple list and
+can't be shown yet (see "Android Auto" below).
 
 ---
 
@@ -49,7 +51,7 @@ cat ~/car-dash-signing/SIGNING_PASSWORD.txt; echo
 | 1 | Pair the vLinker in Android **Settings → Bluetooth** (already done if Car Scanner works) |
 | 2 | The first time an APK is opened from the browser, Android asks to **allow installs from this source** → allow |
 | 3 | Android Auto developer mode: **Settings → Connected devices → Connection preferences → Android Auto** (the path can differ on Poco; search Settings for "Android Auto") → scroll down → tap **Version** 10 times → OK |
-| 4 | In the same Android Auto screen: **⋮ (top right) → Developer settings → Unknown sources: ON** — without this, the car screen hides apps not from the Play Store |
+| 4 | (Optional) Same screen: **⋮ → Developer settings → Unknown sources: ON**. Note: this does not make Car Dash appear in the car (see "Android Auto") |
 
 ---
 
@@ -64,33 +66,72 @@ cat ~/car-dash-signing/SIGNING_PASSWORD.txt; echo
 
 ---
 
-## Test checklist for version 0.1
+## Using the app
 
-**On the phone (ignition ON or engine running):**
+The screen is a terminal: 40 characters per line in portrait, two columns in landscape
+(just rotate the phone). The bottom line has the keys:
+
+| Key | What it does |
+|---|---|
+| **[DASH]** | Speed, gear, RPM bar, pedal/throttle bars, temperatures, warnings, then ENGINE / FUEL / AIR / CAR details |
+| **[ALL]** | Every value the engine computer reports (about 50), by PID number |
+| **[LOG]** | Connection log, fast-read status, **[ADAPTER]** (choose the vLinker) and **[SHARE]** |
+| **[CONNECT]** | Connect to the car (live data) |
+| **[DEMO]** | Replay 8 minutes of a real Tiago drive (24 Oct 2026), on loop. No car or adapter needed |
+| **[STOP] / [STOP DEMO]** | Stop |
+
+**Top line:** `● LIVE` (green) = real data from the car, `◆ DEMO` (amber) = the recorded drive,
+`○ OFF` = nothing running. The second line shows the status, how many rounds per second
+RPM/speed refresh, and `fast` or `slow` reading.
+
+**Colours:** green = fine, **amber** = warning, **red** = alarm, dim = missing or older than 10 s.
+The `>` line under the temperatures lists active warnings.
+
+| Warning | When (same rules as the Python dashboard) |
+|---|---|
+| SHIFT / REDLINE | RPM above 3500 / 4000 (the owner's limits) |
+| WARMING UP / COOLANT HOT / OVERHEATING | coolant below 60 / above 105 / above 115 °C |
+| OIL HOT / OIL OVERHEATING | oil above 120 / 135 °C |
+| BATTERY | engine computer's voltage below 12.0 V (amber), below 11.5 or above 15.0 V (red) |
+
+**GEAR:** worked out from RPM ÷ speed with the Tiago's measured ratios
+(149.2 / 78.8 / 51.1 / 37.8 / 29.1 rpm per km/h). `STOP` = standing, `~` = between gears.
+
+**Fast reading:** RPM, speed, load, throttle, pedal and torque are read every round; other values
+every 3rd, 10th or 50th round. Up to 6 values are asked for in one question. This is
+self-tested at connect; if it doesn't work, the app reads one value at a time (`slow`), which
+always works. **[LOG]** shows the result (`fast read: on: …` or `off: reason`).
+
+---
+
+## Test checklist
+
+**At your desk (no car):** **[DEMO]** → the values should move like a real drive: speed, gear
+changes, the RPM bar turning amber/red near 3500/4000. Try portrait and landscape.
+
+**In the car (ignition ON or engine running):**
 
 1. Close **Car Scanner** first. Only one app can talk to the adapter at a time.
 2. Open **Car Dash** → allow **Nearby devices** (needed for Bluetooth).
-3. **Adapter:** should show the vLinker. If not, tap it and choose the vLinker.
-4. **Connect.** The status goes *Connecting… → Setting up adapter… → Finding sensors… → Connected*.
-5. Expected: `== ENGINE 7E8 ==` with 50 values. The AMT computer (7E9) is listed in the log but not read:
-   it refuses direct requests, and its 9 values only repeat the engine's (no gear).
-   `Sweep N: x.x s` shows how long one round of all values takes.
-6. Tap **Share** and send the text (e.g. to yourself by email). It contains every value plus the
-   connection log, which is what's needed to fix problems.
+3. **[LOG] → [ADAPTER]:** should show the vLinker. If not, tap it and choose the vLinker.
+4. **[CONNECT].** The status goes *Connecting… → Setting up adapter… → Finding sensors… →
+   Reading all values once… → Testing fast read… → Connected*.
+5. **[LOG]:** `fast read: on: …` is the goal. The second line on top should show several
+   rounds per second (e.g. `8.0/s`).
+6. **[LOG] → [SHARE]** and send the text. It contains every value plus the connection log.
 
-**Before the car (at your desk):** Android Auto settings on the phone → **Customize launcher**.
-Car Dash must be listed and ticked. If it isn't, the car screen won't show it either.
+The AMT computer (7E9) is listed in the log but not read: it refuses direct requests, and its
+9 values only repeat the engine's (no gear).
 
-**In the car (wired Android Auto):**
+---
 
-1. Plug the phone in. Open the app launcher on the car screen → **Car Dash**.
-2. The screen is Google's standard list: a **Status** row, then rows of 3 values each
-   (RPM · speed · coolant first). Android Auto decides how many rows fit; the phone shows all values.
-3. Tap **Connect** (top right) if it isn't connected yet. Values refresh about once a second.
+## Android Auto
 
-> Why a list and not the green text: the app registers with Android Auto as an "IoT" app.
-> Android Auto hides sideloaded "navigation" apps, the only type allowed to draw its own screen
-> (found with build 1).
+Android Auto's **Unknown sources** setting does **not** apply to apps built with Google's
+Car App Library (Google: developer.android.com/training/cars/testing), which Car Dash is. So
+the car screen hides Car Dash when it is installed from GitHub. To test in a real car it must
+come from **Google Play** (internal app sharing or an internal test track, no review needed),
+which needs a Play developer account. Until then, only the phone screen is usable.
 
 ---
 
@@ -104,11 +145,12 @@ Car Dash must be listed and ticked. If it isn't, the car screen won't show it ei
 | Actions: red cross, *Secret SIGNING_KEYSTORE_BASE64 is missing* | Do setup step A3/A4 again, then on the Actions page **Re-run jobs** |
 | Actions: red cross, anything else | Open the failed run → **build** → the red step; copy the error lines |
 | Phone: *App not installed* / *conflicts with an existing package* | The APK was signed with a different key. Uninstall Car Dash once, then install again |
-| Car Dash missing on the car screen | Check **Customize launcher** (see test checklist). Unknown sources (setup B4) must be on; restart the phone after installing |
+| Car Dash missing on the car screen | Expected for now: see "Android Auto" |
 | *Connection lost, retrying in 5 s* | Another app (Car Scanner) holds the adapter, the adapter is unplugged, or Bluetooth is off |
 | *No car computer answered (ignition on?)* | Turn the ignition on, then Stop → Connect |
 | Values show `NO DATA` or `refused` | That computer didn't answer that value this round; share the text |
-| Values show `(old)` | Not updated for 10 s or more: the link has stalled |
+| Values are dim | Not updated for 10 s or more (or never answered): the link has stalled |
+| **[LOG]** says `fast read: off: …` | Batching didn't pass the self-test; values are read one at a time (slower, still correct). Share the log |
 
 ---
 
@@ -116,12 +158,16 @@ Car Dash must be listed and ticked. If it isn't, the car screen won't show it ei
 
 | File | Purpose |
 |---|---|
-| `app/src/main/java/.../obd/Elm327.kt` | Sends text commands to the adapter, reads the answers |
+| `app/src/main/java/.../Dash.kt` | The hub: live or demo data in, one snapshot out to both screens |
+| `app/src/main/java/.../ui/Terminal.kt` | The phone's terminal look (DASH / ALL / LOG, portrait and landscape) |
+| `app/src/main/java/.../Tiago.kt` | Gear calculation and warning levels |
+| `app/src/main/java/.../demo/DemoPlayer.kt` + `assets/demo_drive.csv` | Demo mode: replays a recorded drive |
+| `app/src/main/java/.../obd/Elm327.kt` | Sends text commands to the adapter, joins multi-part answers |
 | `app/src/main/java/.../obd/Pids.kt` | Names and formulas for each sensor value |
-| `app/src/main/java/.../obd/ObdSession.kt` | The connection: connect, find sensors, read them in a loop, reconnect |
+| `app/src/main/java/.../obd/ObdSession.kt` | The live connection: connect, find sensors, fast reading with self-test, reconnect |
 | `app/src/main/java/.../obd/Adapters.kt` | Remembers which paired Bluetooth device is the adapter |
-| `app/src/main/java/.../Report.kt` | The text lines both screens show |
-| `app/src/main/java/.../MainActivity.kt` | Phone screen |
+| `app/src/main/java/.../Report.kt` | The plain text sent by **[SHARE]** |
+| `app/src/main/java/.../MainActivity.kt` | Starts the phone screen; Bluetooth permission, adapter choice, sharing |
 | `app/src/main/java/.../car/` | Android Auto: service, the list screen, Connect/Stop |
 | `app/src/main/AndroidManifest.xml` | Tells Android what the app is and what it may use (Bluetooth, Android Auto) |
 | `app/build.gradle.kts` | App id, Android versions, libraries, signing |

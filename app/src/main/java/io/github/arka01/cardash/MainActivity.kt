@@ -1,102 +1,50 @@
 package io.github.arka01.cardash
 
 import android.Manifest
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
-import android.view.View
-import android.view.WindowInsets
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import io.github.arka01.cardash.obd.Adapters
-import io.github.arka01.cardash.obd.ObdSession
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import io.github.arka01.cardash.ui.Actions
+import io.github.arka01.cardash.ui.TerminalApp
 
-/** Phone screen: pick the adapter, connect, and see every sensor as plain text. */
-class MainActivity : Activity() {
-    private val ui = MainScope()
-    private var refresh: Job? = null
-    private lateinit var output: TextView
-    private lateinit var adapterButton: Button
-    private lateinit var connectButton: Button
+/** Phone screen. The look is in ui/Terminal.kt; this class handles Bluetooth permission, adapter and sharing. */
+class MainActivity : ComponentActivity() {
+    private var adapterName by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val black = android.graphics.Color.BLACK
+        enableEdgeToEdge(SystemBarStyle.dark(black), SystemBarStyle.dark(black))
 
-        adapterButton = Button(this).apply { setOnClickListener { pickAdapter() } }
-        connectButton = Button(this).apply { setOnClickListener { toggleConnection() } }
-        val shareButton = Button(this).apply {
-            text = "Share"
-            setOnClickListener { share() }
-        }
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(adapterButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f))
-            addView(connectButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(shareButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        }
-        output = TextView(this).apply {
-            typeface = Typeface.MONOSPACE
-            textSize = 12f
-            setTextColor(Color.rgb(0x33, 0xFF, 0x66))
-        }
-        val scroll = ScrollView(this).apply { addView(output) }
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.BLACK)
-            addView(buttons)
-            addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        }
-        keepClearOfSystemBars(root)
-        setContentView(root)
+        adapterName = Adapters.chosen(this)?.name
+        val actions = Actions(
+            connect = ::connect,
+            demo = { Dash.startDemo(this) },
+            stop = { Dash.stop() },
+            pickAdapter = ::pickAdapter,
+            share = ::share,
+        )
+        setContent { TerminalApp(adapterName, actions) }
 
         if (!Adapters.hasPermission(this)) askPermission()
     }
 
-    override fun onStart() {
-        super.onStart()
-        refresh = ui.launch {
-            while (isActive) {
-                render()
-                delay(250)
-            }
-        }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        adapterName = Adapters.chosen(this)?.name   // paired devices are only visible with the permission
     }
 
-    override fun onStop() {
-        refresh?.cancel()
-        super.onStop()
-    }
-
-    override fun onDestroy() {
-        ui.cancel()   // only the screen; the connection keeps running for the car screen
-        super.onDestroy()
-    }
-
-    private fun render() {
-        val adapter = Adapters.chosen(this)
-        adapterButton.text = "Adapter: ${adapter?.name ?: "choose"}"
-        connectButton.text = if (ObdSession.isRunning) "Stop" else "Connect"
-        output.text = Report.full(ObdSession.state.value)
-    }
-
-    private fun toggleConnection() {
-        if (ObdSession.isRunning) {
-            ObdSession.stop()
-            return
-        }
+    private fun connect() {
         if (!Adapters.hasPermission(this)) {
             askPermission()
             return
@@ -106,7 +54,7 @@ class MainActivity : Activity() {
             pickAdapter()
             return
         }
-        ObdSession.start(this, adapter)
+        Dash.startLive(this, adapter)
     }
 
     private fun pickAdapter() {
@@ -121,7 +69,10 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Which device is the OBD adapter?")
-            .setItems(paired.map { it.name }.toTypedArray()) { _, i -> Adapters.save(this, paired[i]) }
+            .setItems(paired.map { it.name }.toTypedArray()) { _, i ->
+                Adapters.save(this, paired[i])
+                adapterName = paired[i].name
+            }
             .show()
     }
 
@@ -129,7 +80,7 @@ class MainActivity : Activity() {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, "Car Dash ${BuildConfig.VERSION_NAME}")
-            putExtra(Intent.EXTRA_TEXT, Report.full(ObdSession.state.value))
+            putExtra(Intent.EXTRA_TEXT, Report.full(Dash.state.value))
         }
         startActivity(Intent.createChooser(send, "Share readings"))
     }
@@ -137,19 +88,6 @@ class MainActivity : Activity() {
     private fun askPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1)
-        }
-    }
-
-    /** Android 15+ draws apps under the status and navigation bars; pad the content away from them. */
-    private fun keepClearOfSystemBars(root: View) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            root.setOnApplyWindowInsetsListener { view, insets ->
-                val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-                insets
-            }
-        } else {
-            root.fitsSystemWindows = true
         }
     }
 }

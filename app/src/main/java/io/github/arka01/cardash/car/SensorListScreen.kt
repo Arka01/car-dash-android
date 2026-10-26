@@ -12,7 +12,7 @@ import androidx.car.app.model.Template
 import androidx.car.app.versioning.CarAppApiLevels
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import io.github.arka01.cardash.obd.ObdSession
+import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.obd.Pids
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -54,14 +54,14 @@ class SensorListScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     override fun onGetTemplate(): Template {
-        val state = ObdSession.state.value
-        val values = state.readings.associate { it.pid to it.value }
+        val state = Dash.state.value
+        val values = state.readings.mapValues { it.value.text }
 
         val items = ItemList.Builder()
         items.addItem(
             Row.Builder()
                 .setTitle("Status")
-                .addText("${state.status} · port ${state.adapterVoltage} · ${values.size} values")
+                .addText("${state.mode} · ${state.status} · ${values.size} values")
                 .build()
         )
         for (group in CAR_ORDER.chunked(PER_ROW).take(rowLimit() - 1)) {
@@ -74,7 +74,7 @@ class SensorListScreen(carContext: CarContext) : Screen(carContext) {
         }
 
         val connect = Action.Builder()
-            .setTitle(if (ObdSession.isRunning) "Stop" else "Connect")
+            .setTitle(if (Dash.isRunning) "Stop" else "Connect")
             .setOnClickListener { toggleConnection(carContext); invalidate() }
             .build()
         return ListTemplate.Builder()

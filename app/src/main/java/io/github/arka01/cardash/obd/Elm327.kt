@@ -45,23 +45,46 @@ class Elm327(socket: BluetoothSocket) {
     }
 }
 
-/** One answer from one car computer: who sent it (e.g. "7E8") and the data bytes. */
-class EcuReply(val header: String, val data: IntArray)
-
 /**
- * Parses answers on CAN 11-bit (the Tiago's protocol 6) with headers on and spaces off,
- * e.g. "7E8064100BE3FA813" = from 7E8, 6 bytes: 41 00 BE 3F A8 13.
- * Only single-frame answers, which is all that service 01 (live data) uses.
+ * Joins the answer lines into one message per car computer, on CAN 11-bit (the Tiago's
+ * protocol 6) with headers on and spaces off. Short answers fit in one line ("single frame"):
+ *   7E8 06 41 00 BE 3F A8 13          -> from 7E8, 6 bytes: 41 00 BE 3F A8 13
+ * Long ones (e.g. 6 values asked at once) come in pieces that must be put back together:
+ *   7E8 10 13 41 0C 1A F8 0D 32       first frame: 0x013 = 19 bytes in total, 6 of them here
+ *   7E8 21 11 2B 04 40 5A 00 62       consecutive frame 1: 7 more bytes
+ *   7E8 22 8A 00 00 00 00 00 00       consecutive frame 2: the rest, padded
+ * Returns e.g. {"7E8": [0x41, 0x0C, ...]}; computers whose answer is incomplete are left out.
  */
-fun parseCan11(lines: List<String>): List<EcuReply> = lines.mapNotNull { raw ->
-    val line = raw.replace(" ", "")
-    if (line.length < 7 || !line.all { it.isHex() }) return@mapNotNull null
-    val pci = line.substring(3, 5).toInt(16)
-    if (pci shr 4 != 0) return@mapNotNull null
-    val length = pci and 0x0F
-    val hex = line.substring(5)
-    if (hex.length < length * 2) return@mapNotNull null
-    EcuReply(line.substring(0, 3), IntArray(length) { hex.substring(it * 2, it * 2 + 2).toInt(16) })
+fun assembleCan11(lines: List<String>): Map<String, IntArray> {
+    val done = LinkedHashMap<String, IntArray>()
+    val expected = HashMap<String, Int>()
+    val partial = HashMap<String, MutableList<Int>>()
+    for (raw in lines) {
+        val line = raw.replace(" ", "")
+        if (line.length < 5 || line.length % 2 == 0 || !line.all { it.isHex() }) continue
+        val header = line.substring(0, 3)
+        val bytes = (3 until line.length step 2).map { line.substring(it, it + 2).toInt(16) }
+        when (bytes[0] shr 4) {
+            0 -> {   // single frame
+                val length = bytes[0] and 0x0F
+                if (bytes.size - 1 >= length) done[header] = bytes.subList(1, 1 + length).toIntArray()
+            }
+            1 -> {   // first frame
+                if (bytes.size < 2) continue
+                expected[header] = ((bytes[0] and 0x0F) shl 8) or bytes[1]
+                partial[header] = bytes.drop(2).toMutableList()
+            }
+            2 -> partial[header]?.addAll(bytes.drop(1))   // consecutive frame
+        }
+        val want = expected[header] ?: continue
+        val got = partial[header] ?: continue
+        if (got.size >= want) {
+            done[header] = got.subList(0, want).toIntArray()
+            expected.remove(header)
+            partial.remove(header)
+        }
+    }
+    return done
 }
 
 private fun Char.isHex() = this in '0'..'9' || this in 'A'..'F' || this in 'a'..'f'

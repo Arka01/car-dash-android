@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 // GitHub Actions numbers every build; a higher number lets the new APK install over the old one.
@@ -40,6 +41,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        compose = true
     }
 
     compileOptions {
@@ -62,6 +64,12 @@ kotlin {
 
 dependencies {
     implementation("androidx.car.app:app:1.7.0")
-    implementation("androidx.core:core:1.17.0")   // icons for the car screen (IconCompat)
+    implementation("androidx.core:core:1.17.0")   // 1.19+ needs Android SDK 37
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Phone screen (Jetpack Compose). Compose 1.12+ needs Android SDK 37 and AGP 9.
+    implementation(platform("androidx.compose:compose-bom:2026.06.01"))   // Compose 1.11.4
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.activity:activity-compose:1.12.4")
 }
