@@ -1,6 +1,7 @@
 package io.github.arka01.cardash
 
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.ln
 
 enum class Level { OK, WARN, ALARM }
@@ -17,14 +18,19 @@ object Tiago {
     /** RPM per km/h in each gear, measured with --calibrate-gears on 2026-10-24. */
     private val RPM_PER_KMH = doubleArrayOf(149.2, 78.8, 51.1, 37.8, 29.1)
 
-    /** Gear from the RPM-to-speed ratio: 0 when stopped, null while shifting or unknown. */
+    /** Gear from the RPM-to-speed ratio: 0 when standing, null while shifting or unknown. */
     fun gear(speed: Double?, rpm: Double?): Int? {
         if (speed == null || rpm == null) return null
-        if (speed < 5) return 0
+        if (speed < 1) return 0
         if (rpm <= 0) return null
         val ratio = rpm / speed
         val best = RPM_PER_KMH.indices.minByOrNull { abs(ln(ratio / RPM_PER_KMH[it])) } ?: return null
-        return if (abs(ln(ratio / RPM_PER_KMH[best])) < 0.15) best + 1 else null
+        if (abs(ln(ratio / RPM_PER_KMH[best])) < 0.15) return best + 1
+        // Creeping or pulling away: the AMT's clutch is still closing, so the engine turns faster
+        // than 1st gear explains (drive 2026-10-24: ~210 rpm per km/h at 5 km/h vs 149 in 1st).
+        // Reverse looks the same to OBD (speed is never negative), so it shows as 1 too.
+        if (speed < 10 && ratio > RPM_PER_KMH[0] * exp(-0.15)) return 1
+        return null
     }
 
     fun rpmLevel(rpm: Double?) = when {

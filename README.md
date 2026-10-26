@@ -96,7 +96,9 @@ The `>` line under the temperatures lists active warnings.
 | BATTERY | engine computer's voltage below 12.0 V (amber), below 11.5 or above 15.0 V (red) |
 
 **GEAR:** worked out from RPM ÷ speed with the Tiago's measured ratios
-(149.2 / 78.8 / 51.1 / 37.8 / 29.1 rpm per km/h). `STOP` = standing, `~` = between gears.
+(149.2 / 78.8 / 51.1 / 37.8 / 29.1 rpm per km/h). `STOP` = standing (0 km/h), `~` = between
+gears (about 0.35 s per gear change). Below 10 km/h, while the AMT's clutch is still closing,
+it shows `1`. Reverse can't be told apart from 1st gear (OBD speed is never negative).
 
 **Fast reading:** RPM, speed, load, throttle, pedal and torque are read every round; other values
 every 3rd, 10th or 50th round. Up to 6 values are asked for in one question. This is
