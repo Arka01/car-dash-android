@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
             keyTest = ::keyTest,
             shareTest = ::shareTest,
             markKey = { Dash.markKey(it) },
+            shareDrive = ::shareDrive,
         )
         setContent { TerminalApp(adapterName, actions) }
 
@@ -115,6 +116,26 @@ class MainActivity : ComponentActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(send, "Share key test"))
+    }
+
+    /** Sends the newest drive recording (CSV + profile JSON) as attachments. */
+    private fun shareDrive() {
+        val files = Dash.latestDrive(this)
+        if (files.isEmpty()) {
+            Toast.makeText(this, "No drive recorded yet", Toast.LENGTH_LONG).show()
+            return
+        }
+        val uris = ArrayList(files.map { FileProvider.getUriForFile(this, "$packageName.files", it) })
+        val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "*/*"
+            putExtra(Intent.EXTRA_SUBJECT, "Car Dash drive ${files.first().name}")
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            clipData = ClipData.newRawUri(files.first().name, uris.first()).also { clip ->
+                uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+            }
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(send, "Share drive"))
     }
 
     private fun askPermission() {

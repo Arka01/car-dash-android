@@ -129,6 +129,25 @@ The AMT computer (7E9) is listed in the log but not read: it refuses direct requ
 
 ---
 
+## Drive recordings
+
+**Every LIVE run is recorded**, there is no switch. The header shows `REC` while recording.
+
+| File | Contents |
+|---|---|
+| `drive_<date>_<time>.csv` | One row per reading round (several per second): `t` (seconds), `time`, then every value. Same column names as the Python dashboard's recordings, so its analysis and `--replay` work on them. Extra columns at the end: `Gear (estimated)`, `O2 S1 lambda`, `Torque demanded %`, `Coolant (sensors)`, `Manifold pressure fine`, `Exhaust flow (?)` |
+| `drive_<date>_<time>_profile.json` | Which values the car supports, the fast-read result, one reading of everything |
+
+- A reconnect during the drive continues the same file. A run that never connected leaves no file.
+- **[DEV] → [SHARE DRIVE]** sends the newest drive (both files), e.g. by email or to Drive.
+  About 1 MB per 5 minutes.
+- The screen stays on while LIVE / DEMO / TEST runs: a locked phone may pause the app,
+  which would leave gaps in the recording.
+- To analyse on the laptop, copy the files into the Python project's
+  `cars/tata_tiago_2023/recordings/` folder.
+
+---
+
 ## KEY TEST (DEV tab)
 
 Records, about once a second, what the OBD port shows at each key position, so the app can
@@ -183,6 +202,7 @@ which needs a Play developer account. Until then, only the phone screen is usabl
 | `app/src/main/java/.../Dash.kt` | The hub: live or demo data in, one snapshot out to both screens |
 | `app/src/main/java/.../ui/Terminal.kt` | The phone's terminal look (DASH / ALL / DEV, portrait and landscape) |
 | `app/src/main/java/.../Tiago.kt` | Gear calculation and warning levels |
+| `app/src/main/java/.../DriveRecorder.kt` | Records every LIVE run to CSV + profile JSON (Python dashboard format) |
 | `app/src/main/java/.../demo/DemoPlayer.kt` + `assets/demo_drive.csv` | Demo mode: replays a recorded drive |
 | `app/src/main/java/.../obd/Elm327.kt` | Sends text commands to the adapter, joins multi-part answers |
 | `app/src/main/java/.../obd/Pids.kt` | Names and formulas for each sensor value |

@@ -31,6 +31,8 @@ data class Snapshot(
     val fastRead: String = "",
     val log: List<String> = emptyList(),
     val test: TestInfo? = null,
+    val recording: String? = null,   // file name of the drive being recorded (LIVE)
+    val recordedRows: Int = 0,
 ) {
     fun number(pid: Int): Double? = readings[pid]?.number
 }
@@ -49,12 +51,17 @@ object Dash {
 
     val isRunning: Boolean get() = ObdSession.isRunning || DemoPlayer.isRunning
 
+    /** Every LIVE run is recorded (files/drives/drive_<date>_<time>.csv + _profile.json). */
     fun startLive(context: Context, adapter: SavedAdapter) {
         stopSources()
         val gen = ++generation
-        store.value = Snapshot(mode = Mode.LIVE, status = "Connecting…", adapterName = adapter.name)
-        ObdSession.start(context, adapter, gen)
+        val rec = DriveRecorder(File(context.filesDir, DriveRecorder.DIR))
+        recorder = rec
+        store.value = Snapshot(mode = Mode.LIVE, status = "Connecting…", adapterName = adapter.name, recording = rec.csv.name)
+        ObdSession.start(context, adapter, gen, recorder = rec)
     }
+
+    private var recorder: DriveRecorder? = null
 
     fun startDemo(context: Context) {
         stopSources()
@@ -90,6 +97,15 @@ object Dash {
         }
     }
 
+    /** The newest drive recording (CSV, and its profile if saved), for sharing. */
+    fun latestDrive(context: Context): List<File> {
+        val csv = File(context.filesDir, DriveRecorder.DIR)
+            .listFiles { f -> f.name.startsWith("drive_") && f.name.endsWith(".csv") }
+            ?.maxByOrNull { it.name } ?: return emptyList()
+        val profile = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_profile.json")
+        return listOfNotNull(csv, profile.takeIf { it.exists() })
+    }
+
     /** The newest KEY TEST file, if any, for sharing. */
     fun latestKeyTest(context: Context): File? =
         File(context.filesDir, DEV_DIR).listFiles { f -> f.name.startsWith("keytest_") }?.maxByOrNull { it.name }
@@ -103,6 +119,8 @@ object Dash {
     }
 
     private fun stopSources() {
+        recorder?.close()
+        recorder = null
         ObdSession.stop()
         DemoPlayer.stop()
     }

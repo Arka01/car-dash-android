@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -97,6 +99,7 @@ class Actions(
     val keyTest: () -> Unit,
     val shareTest: () -> Unit,
     val markKey: (String) -> Unit,
+    val shareDrive: () -> Unit,
 )
 
 @Composable
@@ -108,6 +111,14 @@ fun TerminalApp(adapterName: String?, actions: Actions) {
             value = System.currentTimeMillis()
             delay(1000)
         }
+    }
+
+    // Keep the screen on while something runs: a locked phone may pause the app (gaps in recordings).
+    val view = LocalView.current
+    val running = snap.mode != Mode.OFF
+    DisposableEffect(running) {
+        view.keepScreenOn = running
+        onDispose { view.keepScreenOn = false }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(BLACK).safeDrawingPadding().padding(4.dp)) {
@@ -266,6 +277,7 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
     }
     val details = buildList {
         add(s.status)
+        if (s.mode == Mode.LIVE && s.recording != null) add("REC")
         if (s.rounds > 0) add(String.format(Locale.US, "%.1f/s", s.roundsPerSec))
         if (s.fastRead.startsWith("on")) add("fast") else if (s.fastRead.startsWith("off")) add("slow")
     }.joinToString(" · ")
@@ -493,6 +505,18 @@ private fun DevView(s: Snapshot, adapterName: String?, actions: Actions) {
         if (test != null) {
             item { Line { put("   t label     volt ecu  net", DIM) } }
             items(test.recent.reversed()) { line -> Line { put(line) } }
+        }
+        item { Section("RECORDING") }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Line { put(if (s.mode == Mode.LIVE) "● REC" else "every LIVE run", if (s.mode == Mode.LIVE) RED else DIM) }
+                Key("SHARE DRIVE", false, GREEN, actions.shareDrive)
+            }
+        }
+        item {
+            Line(wrap = true) {
+                put(s.recording?.let { "$it · ${s.recordedRows} rows" } ?: "newest drive is shared", DIM)
+            }
         }
         item { Section("LOG") }
         item { Line(wrap = true) { put("fast read: ${s.fastRead.ifEmpty { "-" }}", DIM) } }

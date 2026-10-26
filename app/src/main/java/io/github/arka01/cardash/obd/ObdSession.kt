@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.Dash
+import io.github.arka01.cardash.DriveRecorder
 import io.github.arka01.cardash.KeyMarks
 import io.github.arka01.cardash.Reading
 import io.github.arka01.cardash.TestInfo
@@ -63,8 +64,11 @@ object ObdSession {
 
     val isRunning: Boolean get() = job?.isActive == true
 
-    /** Live reading; with [keyTest] set, the KEY TEST is recorded into that file instead. */
-    fun start(context: Context, adapter: SavedAdapter, gen: Int, keyTest: File? = null) {
+    /**
+     * Live reading, recorded by [recorder]; with [keyTest] set, the KEY TEST is recorded
+     * into that file instead.
+     */
+    fun start(context: Context, adapter: SavedAdapter, gen: Int, recorder: DriveRecorder? = null, keyTest: File? = null) {
         if (isRunning) return
         val appContext = context.applicationContext
         val previous = job
@@ -72,7 +76,7 @@ object ObdSession {
             previous?.join()   // let a just-stopped loop finish closing its connection first
             while (isActive) {
                 try {
-                    Reader(gen, keyTest).connectAndRead(appContext, adapter.address)
+                    Reader(gen, recorder, keyTest).connectAndRead(appContext, adapter.address)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -93,11 +97,12 @@ object ObdSession {
     }
 
     /** One connection attempt: everything here belongs to that attempt only. */
-    private class Reader(val gen: Int, val keyTest: File?) {
+    private class Reader(val gen: Int, val recorder: DriveRecorder?, val keyTest: File?) {
         private lateinit var elm: Elm327
         private var countSuffix = true            // "010C1": stop waiting after 1 answer line
         private val sizes = HashMap<Int, Int>()   // data bytes per value, learned from single reads
         private val readings = HashMap<Int, Reading>()
+        private var portVolts: Double? = null
 
         private fun log(line: String) = Dash.log(gen, line)
         private fun status(text: String) = Dash.update(gen) { it.copy(status = text) }
@@ -145,6 +150,7 @@ object ObdSession {
             // 2. Groups by how often they're read; self-test the batches.
             val groups = buildGroups(pids)
             selfTest(groups, singleMs)
+            recorder?.saveProfile(device.name, modules, Dash.state.value.fastRead, readings)
 
             // 3. The reading loop.
             status("Connected")
@@ -163,7 +169,10 @@ object ObdSession {
                 last = now
                 val r = round
                 val perSec = rate
-                Dash.update(gen) { it.copy(readings = readings.toMap(), rounds = r, roundsPerSec = perSec) }
+                val snapshot = readings.toMap()
+                recorder?.write(snapshot, portVolts)
+                val recorded = recorder?.rows ?: 0
+                Dash.update(gen) { it.copy(readings = snapshot, rounds = r, roundsPerSec = perSec, recordedRows = recorded) }
             }
         }
 
@@ -387,6 +396,7 @@ object ObdSession {
 
         private fun readAdapterVoltage() {
             val v = volts()
+            portVolts = v
             Dash.update(gen) { it.copy(adapterVoltage = v) }
         }
 
