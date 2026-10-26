@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import io.github.arka01.cardash.BuildConfig
+import io.github.arka01.cardash.CarState
 import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.DriveRecorder
 import io.github.arka01.cardash.KeyMarks
@@ -38,6 +39,11 @@ private val PERIOD: Map<Int, Int> =
         listOf(0x0B, 0x0E, 0x06, 0x07, 0x44, 0x5E, 0x11, 0x49, 0x4A, 0x4C, 0x47, 0x43, 0x87, 0x9E, 0x34, 0x15, 0x61)
             .associateWith { 3 } +
         listOf(0x05, 0x0F, 0x5C, 0x46, 0x3C, 0x67, 0x42, 0x2F, 0x33, 0x1F, 0x2E, 0x03, 0x56).associateWith { 10 }
+
+private val VOLTS = Regex("""(\d{1,2}\.\d{1,2})\s*[Vv]""")
+
+/** Values that keep counting (run time, distances, minutes): skipped when comparing reads. */
+private val COUNTERS = setOf(0x1F, 0x21, 0x30, 0x31, 0x4D, 0x4E)
 
 /** Values read together in one question (or one by one if batching is off). */
 private class Group(val pids: List<Int>, val period: Int, val phase: Int) {
@@ -127,7 +133,14 @@ object ObdSession {
             if (keyTest != null) return runKeyTest(keyTest)
 
             status("Finding sensors…")
-            val modules = findSupported()
+            var modules = findSupported()
+            while (modules.isEmpty()) {
+                // Nothing answers: the ignition is off. Listen (send nothing) until the key turns.
+                log("No car computer answered: waiting for the ignition")
+                waitForNetwork()
+                status("Finding sensors…")
+                modules = findSupported()
+            }
             for ((header, pids) in modules) {
                 log("${moduleName(header)}: ${pids.size} sensors ${pids.joinToString(" ") { "%02X".format(it) }}")
             }
@@ -153,26 +166,92 @@ object ObdSession {
             recorder?.saveProfile(device.name, modules, Dash.state.value.fastRead, readings)
 
             // 3. The reading loop.
-            status("Connected")
+            var state = CarState.UNKNOWN
+            var silentRounds = 0
             var round = 0
             var rate = 0.0
             var last = System.currentTimeMillis()
             while (true) {
+                val roundStart = System.currentTimeMillis()
                 for (group in groups) {
                     if ((round + group.phase) % group.period == 0) readGroup(group)
                 }
                 if (round % 10 == 5) readAdapterVoltage()
                 round++
+
+                // What the car is doing (see CarState). RPM is read every round.
+                val rpm = readings[0x0C]?.takeIf { it.time >= roundStart }?.number
+                silentRounds = if (rpm == null) silentRounds + 1 else 0
+                val previous = state
+                state = when {
+                    silentRounds >= 2 -> CarState.IGNITION_OFF
+                    rpm == null -> state
+                    rpm >= 500 -> CarState.ENGINE_ON
+                    rpm > 0 -> CarState.STARTING
+                    // RPM 0: ignition on, or the engine computer's ~30 s after key-off; the AMT tells.
+                    state == CarState.ENGINE_ON || state == CarState.STARTING || state == CarState.UNKNOWN ||
+                        round % 10 == 1 -> ignitionCheck()
+                    else -> state
+                }
+                if (state != previous) log("Car: ${state.label}")
+
                 val now = System.currentTimeMillis()
                 val instant = 1000.0 / maxOf(now - last, 1L)
                 rate = if (rate == 0.0) instant else rate * 0.9 + instant * 0.1
                 last = now
                 val r = round
                 val perSec = rate
+                val s = state
                 val snapshot = readings.toMap()
-                recorder?.write(snapshot, portVolts)
+                recorder?.write(snapshot, portVolts, s)
                 val recorded = recorder?.rows ?: 0
-                Dash.update(gen) { it.copy(readings = snapshot, rounds = r, roundsPerSec = perSec, recordedRows = recorded) }
+                Dash.update(gen) {
+                    it.copy(readings = snapshot, rounds = r, roundsPerSec = perSec, recordedRows = recorded, carState = s, status = s.label)
+                }
+
+                if (state == CarState.IGNITION_OFF && silentRounds >= 2) {
+                    // The engine computer has gone to sleep: stop asking, only listen until the key turns.
+                    waitForNetwork()
+                    silentRounds = 0
+                    state = CarState.UNKNOWN
+                    last = System.currentTimeMillis()
+                }
+            }
+        }
+
+        /**
+         * IGNITION ON (engine off) vs. the engine computer's shutdown after key-off: the AMT (7E9)
+         * answers only while the ignition is really on (KEY TEST 2026-10-26).
+         */
+        private fun ignitionCheck(): CarState {
+            elm.command("ATSH7DF")   // ask everyone
+            val who = assembleCan11(elm.command("0100", 3000)).keys
+            elm.command("ATSH7E0")   // back to the engine computer
+            return if ("7E9" in who) CarState.IGNITION_ON else CarState.IGNITION_OFF
+        }
+
+        /**
+         * Ignition off: sends nothing to the car (requests could keep its modules awake and drain
+         * the battery), only listens to the network and reads the battery voltage every ~2 s,
+         * recording it. Returns when the network becomes active (key turned to ON), or after
+         * 30 s so the caller can check once by asking.
+         */
+        private fun waitForNetwork() {
+            val started = System.currentTimeMillis()
+            while (System.currentTimeMillis() - started < 30_000) {
+                val v = volts()
+                portVolts = v
+                val heard = elm.monitor(250)
+                recorder?.write(emptyMap(), v, CarState.IGNITION_OFF)
+                val recorded = recorder?.rows ?: 0
+                Dash.update(gen) {
+                    it.copy(adapterVoltage = v, carState = CarState.IGNITION_OFF, status = CarState.IGNITION_OFF.label, recordedRows = recorded)
+                }
+                if (heard.isNotEmpty()) {
+                    log("Car's network active again")
+                    return
+                }
+                Thread.sleep(1700)
             }
         }
 
@@ -245,7 +324,10 @@ object ObdSession {
             }
         }
 
-        private fun volts(): Double? = elm.command("ATRV").firstOrNull()?.trimEnd('V', 'v')?.toDoubleOrNull()
+        /** The adapter's battery reading, e.g. "12.6V"; anything else (a stray CAN line) is ignored. */
+        private fun volts(): Double? = elm.command("ATRV").firstNotNullOfOrNull { line ->
+            VOLTS.matchEntire(line.trim())?.groupValues?.get(1)?.toDoubleOrNull()
+        }
 
         /** Asks "which sensors do you have?" (01 00, 01 20, …) and collects the answers per computer. */
         private fun findSupported(): Map<String, List<Int>> {
@@ -264,7 +346,6 @@ object ObdSession {
                 }
                 base += 0x20
             }
-            if (supported.isEmpty()) throw IOException("No car computer answered (ignition on?)")
             // 0x20, 0x40, … only say "there are more"; they are not sensors.
             return supported.mapValues { (_, pids) -> pids.filter { it % 0x20 != 0 } }
         }
@@ -299,6 +380,7 @@ object ObdSession {
         private fun readGroup(group: Group) {
             if (group.batched) {
                 val values = askBatch(group)
+                if (values != null && values.isEmpty()) return   // the car didn't answer: silent
                 if (values != null) {
                     group.failures = 0
                     for ((pid, data) in values) store(pid, data)
@@ -381,6 +463,7 @@ object ObdSession {
                 if (got == null || got.keys != group.pids.toSet()) return off("incomplete answer for $names")
                 for ((pid, data) in got) {
                     if ((PERIOD[pid] ?: 50) < 10) continue   // fast-changing values may really differ
+                    if (pid in COUNTERS) continue            // clocks and distances keep counting
                     val combined = Pids.decode(pid, data).number ?: continue
                     val normal = readings[pid]?.number ?: continue
                     if (kotlin.math.abs(combined - normal) > maxOf(1.0, 0.02 * kotlin.math.abs(normal))) {

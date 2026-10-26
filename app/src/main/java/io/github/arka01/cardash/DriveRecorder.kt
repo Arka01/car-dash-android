@@ -36,7 +36,7 @@ class DriveRecorder(dir: File) {
 
     /** Appends one row with the latest value of everything. */
     @Synchronized
-    fun write(readings: Map<Int, Reading>, adapterVoltage: Double?) {
+    fun write(readings: Map<Int, Reading>, adapterVoltage: Double?, state: CarState) {
         if (closed) return   // stopped while the reading loop was finishing a round
         val w = writer ?: FileWriter(csv, true).also { writer = it }
         if (csv.length() == 0L) w.write((listOf("t", "time") + COLUMNS.map { it.first }).joinToString(",") + "\n")
@@ -45,6 +45,7 @@ class DriveRecorder(dir: File) {
             when (source) {
                 ADAPTER_VOLTAGE -> adapterVoltage?.let(::number) ?: ""
                 GEAR -> gear?.toString() ?: ""
+                STATE -> state.label
                 NOTHING -> ""
                 else -> readings[source]?.let { r ->
                     if (source in TEXT_PIDS || r.number == null) text(r.text) else number(r.number)
@@ -101,6 +102,7 @@ class DriveRecorder(dir: File) {
         private const val ADAPTER_VOLTAGE = -1
         private const val GEAR = -2
         private const val NOTHING = -3
+        private const val STATE = -4
 
         /** Values written as words (as the Python recordings do), not numbers. */
         private val TEXT_PIDS = setOf(0x01, 0x02, 0x03, 0x13, 0x1C, 0x41, 0x4F, 0x51)
@@ -127,7 +129,7 @@ class DriveRecorder(dir: File) {
             "Various Max values" to 0x4F, "Maximum value for mass air flow sensor" to 0x50,
             "Fuel Type" to 0x51, "Long term secondary O2 trim - Bank 1" to 0x56,
             // App-only columns
-            "Gear (estimated)" to GEAR, "O2 S1 lambda" to 0x34, "Torque demanded %" to 0x61,
+            "Car state" to STATE, "Gear (estimated)" to GEAR, "O2 S1 lambda" to 0x34, "Torque demanded %" to 0x61,
             "Coolant (sensors)" to 0x67, "Manifold pressure fine" to 0x87, "Exhaust flow (?)" to 0x9E,
         )
     }

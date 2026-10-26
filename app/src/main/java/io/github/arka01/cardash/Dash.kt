@@ -13,6 +13,21 @@ import java.util.Locale
 
 enum class Mode { OFF, LIVE, DEMO, TEST }
 
+/**
+ * What the car is doing, worked out from the OBD port (KEY TEST of 2026-10-26):
+ * ENGINE ON = RPM above 500; STARTING = RPM above 0 (cranking); IGNITION ON = RPM 0 and the
+ * AMT computer (7E9) answers; IGNITION OFF = the AMT and the network are silent. The engine
+ * computer keeps answering ~30 s after the key is turned off, so it can't be used for that.
+ * LOCK and ACC look the same from the OBD port (both IGNITION OFF).
+ */
+enum class CarState(val label: String) {
+    UNKNOWN("Connected"),
+    IGNITION_OFF("IGNITION OFF"),
+    IGNITION_ON("IGNITION ON"),
+    STARTING("STARTING"),
+    ENGINE_ON("ENGINE ON"),
+}
+
 /** One engine value: the number (for bars, warnings, gear) and the text to show. */
 data class Reading(val pid: Int, val name: String, val number: Double?, val text: String, val time: Long)
 
@@ -32,6 +47,7 @@ data class Snapshot(
     val log: List<String> = emptyList(),
     val test: TestInfo? = null,
     val recording: String? = null,   // file name of the drive being recorded (LIVE)
+    val carState: CarState = CarState.UNKNOWN,
     val recordedRows: Int = 0,
 ) {
     fun number(pid: Int): Double? = readings[pid]?.number

@@ -56,16 +56,24 @@ class Elm327(socket: BluetoothSocket) {
 
         val heard = StringBuilder()
         val end = System.currentTimeMillis() + ms
-        while (System.currentTimeMillis() < end) {
+        // On a busy network the adapter's buffer fills and it stops by itself ("BUFFER FULL >").
+        while (System.currentTimeMillis() < end && !heard.contains('>')) {
             if (!readAvailable(heard)) Thread.sleep(2)
         }
-        output.write("\r".toByteArray(Charsets.US_ASCII))   // stop listening
-        output.flush()
-        val deadline = System.currentTimeMillis() + 1500
-        while (!heard.contains('>')) {
-            if (System.currentTimeMillis() > deadline) throw IOException("Adapter didn't stop listening")
-            if (!readAvailable(heard)) Thread.sleep(2)
+        if (!heard.contains('>')) {
+            // Stop with a space, not Enter: if the adapter has just stopped by itself, Enter would
+            // repeat ATMA (key test of 2026-10-26: answers came back shifted by one), while a
+            // space at the prompt is ignored by the next command.
+            output.write(" ".toByteArray(Charsets.US_ASCII))
+            output.flush()
+            val deadline = System.currentTimeMillis() + 1500
+            while (!heard.contains('>')) {
+                if (System.currentTimeMillis() > deadline) throw IOException("Adapter didn't stop listening")
+                if (!readAvailable(heard)) Thread.sleep(2)
+            }
         }
+        Thread.sleep(20)   // let any last bytes arrive, then drop them
+        while (input.available() > 0) input.read(buffer)
         return heard.substring(0, heard.indexOf('>'))
             .split('\r', '\n')
             .map { it.trim().replace(" ", "") }

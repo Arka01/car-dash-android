@@ -42,6 +42,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import io.github.arka01.cardash.BuildConfig
+import io.github.arka01.cardash.CarState
 import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.KeyMarks
 import io.github.arka01.cardash.Level
@@ -275,13 +276,21 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
         put("  ")
         put(clock.format(Date(now)), GREEN)
     }
+    val stateColor = when (s.carState) {
+        CarState.ENGINE_ON -> GREEN
+        CarState.STARTING, CarState.IGNITION_ON -> AMBER
+        CarState.IGNITION_OFF, CarState.UNKNOWN -> DIM
+    }
     val details = buildList {
-        add(s.status)
         if (s.mode == Mode.LIVE && s.recording != null) add("REC")
         if (s.rounds > 0) add(String.format(Locale.US, "%.1f/s", s.roundsPerSec))
         if (s.fastRead.startsWith("on")) add("fast") else if (s.fastRead.startsWith("off")) add("slow")
-    }.joinToString(" · ")
-    Line { put(details.take(cols), DIM) }
+    }
+    Line {
+        put(s.status.take(cols), if (s.mode == Mode.LIVE) stateColor else DIM)
+        val rest = details.joinToString(" · ")
+        if (rest.isNotEmpty()) put(" · $rest".take(maxOf(0, cols - s.status.length)), DIM)
+    }
 }
 
 @Composable

@@ -85,6 +85,22 @@ The bottom line has the keys:
 `◇ TEST` (amber) = KEY TEST running, `○ OFF` = nothing running. The second line shows the status, how many rounds per second
 RPM/speed refresh, and `fast` or `slow` reading.
 
+**Car state** (start of the second line, while LIVE):
+
+| Shows | Means | How the app knows (KEY TEST, 26 Oct 2026) |
+|---|---|---|
+| `ENGINE ON` (green) | Engine running | RPM 500 or more |
+| `STARTING` (amber) | Cranking | RPM above 0 but below 500 |
+| `IGNITION ON` (amber) | Key at ON, engine off | RPM 0 and the AMT computer answers |
+| `IGNITION OFF` (dim) | Key at LOCK or ACC | AMT and the car's network silent |
+
+- LOCK and ACC can't be told apart from the OBD port (the music system isn't on it).
+- After the key is turned off, the engine computer still answers for ~30 s; the app ignores
+  that and shows `IGNITION OFF` straight away.
+- While `IGNITION OFF`, the app sends nothing to the car (so its modules aren't kept awake),
+  only listens, and records the battery voltage every ~2 s. It resumes by itself when the key
+  is turned to ON. Connecting with the key at LOCK simply waits.
+
 **Colours:** green = fine, **amber** = warning, **red** = alarm, dim = missing or older than 10 s.
 The `>` line under the temperatures lists active warnings.
 
