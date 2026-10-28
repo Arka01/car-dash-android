@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Folders the DEV tab may share: files/dev (key tests), files/drives (recordings). -->
+<!-- Folders the DEV tab may share: files/dev (key tests), files/cars/<car>/recordings (drives). -->
 <paths>
     <files-path name="dev" path="dev/" />
-    <files-path name="drives" path="drives/" />
+    <files-path name="cars" path="cars/" />
 </paths>

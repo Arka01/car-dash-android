@@ -7,6 +7,13 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
 
+    <!-- Lets the app find the phone's text-to-speech voice (warm-up messages); hidden otherwise on Android 11+. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:label="Car Dash"
         android:icon="@drawable/ic_launcher"

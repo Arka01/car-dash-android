@@ -8,10 +8,12 @@ import android.content.Context
 import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.CarState
 import io.github.arka01.cardash.Dash
-import io.github.arka01.cardash.DriveRecorder
 import io.github.arka01.cardash.KeyMarks
+import io.github.arka01.cardash.ProbeResult
 import io.github.arka01.cardash.Reading
 import io.github.arka01.cardash.TestInfo
+import io.github.arka01.cardash.cars.CarProfile
+import io.github.arka01.cardash.cars.Cars
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +22,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileWriter
 import java.io.IOException
@@ -29,18 +33,30 @@ import java.util.Locale
 import java.util.UUID
 
 private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-private const val PROTOCOL = "6"   // ISO 15765-4 CAN 11 bit 500 kbaud, from the Tiago's car.json
 private const val ENGINE = "7E8"   // the engine computer's answers; it listens on 7E0
 private const val MAX_BATCH = 6    // the OBD standard allows up to 6 values per question
+private val CAN_11BIT = setOf("6", "8")   // the protocols assembleCan11 understands
 
 /** How often each value is read, in rounds. Anything not listed: every 50th round. */
 private val PERIOD: Map<Int, Int> =
     listOf(0x0C, 0x0D, 0x04, 0x45, 0x5A, 0x62).associateWith { 1 } +
-        listOf(0x0B, 0x0E, 0x06, 0x07, 0x44, 0x5E, 0x11, 0x49, 0x4A, 0x4C, 0x47, 0x43, 0x87, 0x9E, 0x34, 0x15, 0x61)
-            .associateWith { 3 } +
-        listOf(0x05, 0x0F, 0x5C, 0x46, 0x3C, 0x67, 0x42, 0x2F, 0x33, 0x1F, 0x2E, 0x03, 0x56).associateWith { 10 }
+        listOf(0x0B, 0x0E, 0x06, 0x07, 0x44, 0x5E, 0x11, 0x49, 0x4A, 0x4C, 0x47, 0x43, 0x87, 0x9E, 0x34, 0x15, 0x61,
+            0x10, 0x23, 0x2C).associateWith { 3 } +
+        listOf(0x05, 0x0F, 0x5C, 0x46, 0x3C, 0x67, 0x42, 0x2F, 0x33, 0x1F, 0x2E, 0x03, 0x56, 0x21, 0x31).associateWith { 10 }
 
 private val VOLTS = Regex("""(\d{1,2}\.\d{1,2})\s*[Vv]""")
+
+/** What a connection is for. */
+sealed class Task {
+    /** Live dashboard and recording. */
+    object Live : Task()
+
+    /** KEY TEST rows into [file]. */
+    class KeyTest(val file: File) : Task()
+
+    /** PROBE of [car] (newCar = false), or NEW CAR: scan, VIN, questions. */
+    class Scan(val newCar: Boolean, val car: CarProfile?) : Task()
+}
 
 /** Values read together in one question (or one by one if batching is off). */
 private class Group(val pids: List<Int>, val period: Int, val phase: Int) {
@@ -51,14 +67,17 @@ private class Group(val pids: List<Int>, val period: Int, val phase: Int) {
 
 /**
  * The live connection to the vLinker. Runs in the background: connect, find the engine
- * computer's values, then read them in a loop. If the link drops it retries every 5 s.
+ * computer's values, check which car it is (VIN), then read them in a loop. If the link drops
+ * it retries every 5 s.
  *
  * Reading speed (each question to the car takes ~35 ms):
  * - Priorities: RPM, speed, load, throttle, pedal and torque every round; the rest every
  *   3rd, 10th or 50th round ([PERIOD]), so the dash values refresh several times a second.
  * - Batching ("fast read", as in the Python dashboard's --fast-read): up to 6 values per
- *   question. Self-tested at connect against normal reads; a group that keeps giving
- *   garbled answers falls back to one value per question.
+ *   question. Self-tested at connect; a group that keeps giving garbled answers falls back to
+ *   one value per question.
+ * - While the engine is off, only RPM and the battery voltage are read (everything every 20th
+ *   round), so the voltage dip when the engine is started is caught (battery monitor).
  */
 object ObdSession {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -67,11 +86,7 @@ object ObdSession {
 
     val isRunning: Boolean get() = job?.isActive == true
 
-    /**
-     * Live reading, recorded by [recorder]; with [keyTest] set, the KEY TEST is recorded
-     * into that file instead.
-     */
-    fun start(context: Context, adapter: SavedAdapter, gen: Int, recorder: DriveRecorder? = null, keyTest: File? = null) {
+    fun start(context: Context, adapter: SavedAdapter, gen: Int, task: Task) {
         if (isRunning) return
         val appContext = context.applicationContext
         val previous = job
@@ -79,12 +94,16 @@ object ObdSession {
             previous?.join()   // let a just-stopped loop finish closing its connection first
             while (isActive) {
                 try {
-                    Reader(gen, recorder, keyTest).connectAndRead(appContext, adapter.address)
+                    if (Reader(gen, task).connectAndRead(appContext, adapter.address)) break   // done
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     if (!isActive) break   // stop() closed the link on purpose
                     Dash.log(gen, "Lost: ${e.message ?: e.javaClass.simpleName}")
+                    if (task is Task.Scan) {
+                        Dash.finished(gen, "Scan failed: ${e.message ?: e.javaClass.simpleName}")
+                        break
+                    }
                     Dash.update(gen) { it.copy(status = "Connection lost, retrying in 5 s") }
                 } finally {
                     closeSocket()
@@ -100,18 +119,21 @@ object ObdSession {
     }
 
     /** One connection attempt: everything here belongs to that attempt only. */
-    private class Reader(val gen: Int, val recorder: DriveRecorder?, val keyTest: File?) {
+    private class Reader(val gen: Int, val task: Task) {
         private lateinit var elm: Elm327
+        private lateinit var probe: Probe
         private var countSuffix = true            // "010C1": stop waiting after 1 answer line
         private val sizes = HashMap<Int, Int>()   // data bytes per value, learned from single reads
         private val readings = HashMap<Int, Reading>()
         private var portVolts: Double? = null
+        private var portAt: Long? = null
 
         private fun log(line: String) = Dash.log(gen, line)
         private fun status(text: String) = Dash.update(gen) { it.copy(status = text) }
 
+        /** Returns true when the task is done (scan finished, wrong car); false never happens for LIVE. */
         @SuppressLint("MissingPermission")   // the screens check the permission before starting
-        fun connectAndRead(context: Context, address: String) {
+        fun connectAndRead(context: Context, address: String): Boolean {
             val bluetooth = context.getSystemService(BluetoothManager::class.java)?.adapter
                 ?: throw IOException("This phone has no Bluetooth")
             if (!bluetooth.isEnabled) throw IOException("Bluetooth is off")
@@ -119,31 +141,58 @@ object ObdSession {
 
             status("Connecting to ${device.name ?: address}…")
             elm = Elm327(openSocket(device))
+            probe = Probe(elm, ::log)
             log("Bluetooth connected")
 
+            // The car's protocol from its settings; a new car (or one without it) is auto-detected.
+            val car = Dash.state.value.car
+            val protocol = if (task is Task.Scan && task.newCar) "0" else car?.protocol ?: "0"
             status("Setting up adapter…")
-            for (cmd in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH1", "ATSP$PROTOCOL", "ATI")) {
+            for (cmd in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH1", "ATSP$protocol", "ATI")) {
                 val answer = elm.command(cmd, timeoutMs = if (cmd == "ATZ") 5000 else 2000)
                 log("$cmd → ${answer.joinToString(" | ")}")
             }
 
-            if (keyTest != null) return runKeyTest(keyTest)
+            if (task is Task.KeyTest) {
+                runKeyTest(task.file, car?.name ?: "car")
+                return false
+            }
+            if (task is Task.Scan) return runScan(context, task, protocol == "0")
 
             status("Finding sensors…")
-            var modules = findSupported()
+            var modules = probe.supported(if (protocol == "0") 20_000 else 5000)
             while (modules.isEmpty()) {
                 // Nothing answers: the ignition is off. Listen (send nothing) until the key turns.
                 log("No car computer answered: waiting for the ignition")
                 waitForNetwork()
                 status("Finding sensors…")
-                modules = findSupported()
+                modules = probe.supported(if (protocol == "0") 20_000 else 5000)
             }
             for ((header, pids) in modules) {
                 log("${moduleName(header)}: ${pids.size} sensors ${pids.joinToString(" ") { "%02X".format(it) }}")
             }
-            // Only the engine computer is read: the AMT (7E9) refuses direct requests, and its
-            // 9 values just repeat the engine's (test drive 2026-10-26).
+            val protocolId = protocolId()
+            if (protocolId !in CAN_11BIT) {
+                Dash.finished(gen, "Protocol $protocolId: the app only reads CAN 11-bit cars (6, 8) so far")
+                return true
+            }
+            val protocolName = elm.command("ATDP").firstOrNull() ?: "protocol $protocolId"
+            // Only the engine computer is read: the Tiago's AMT (7E9) refuses direct requests, and
+            // its 9 values just repeat the engine's (test drive 2026-10-26).
             val pids = modules[ENGINE] ?: throw IOException("The engine computer (7E8) didn't answer")
+
+            // Which car is this (VIN), and its stored trouble codes (asked of every computer).
+            status("Checking the car…")
+            val vin = probe.vin()
+            val stop = Dash.checkCar(gen, vin)
+            if (stop != null) {
+                log(stop)
+                Dash.finished(gen, stop)
+                return true
+            }
+            val codes = probe.troubleCodes()
+            log("VIN ${vin ?: "not shared"} · trouble codes: $codes")
+            Dash.connected(gen, protocolName, pids.toSet(), codes)
             elm.command("ATSH7E0")   // from now on, ask the engine computer directly
 
             // 1. One normal round: first values on screen, and each value's size and timing.
@@ -154,13 +203,13 @@ object ObdSession {
                 readSingle(pid)
                 singleMs[pid] = System.currentTimeMillis() - started
             }
-            publish()
             readAdapterVoltage()
+            Dash.publishRound(gen, readings.toMap(), portVolts, portAt, CarState.UNKNOWN)
 
             // 2. Groups by how often they're read; self-test the batches.
             val groups = buildGroups(pids)
             selfTest(groups, singleMs)
-            recorder?.saveProfile(device.name, modules, Dash.state.value.fastRead, readings)
+            Dash.run?.recorder?.saveProfile(device.name, protocolName, codes, modules, Dash.state.value.fastRead, readings)
 
             // 3. The reading loop.
             var state = CarState.UNKNOWN
@@ -170,10 +219,17 @@ object ObdSession {
             var last = System.currentTimeMillis()
             while (true) {
                 val roundStart = System.currentTimeMillis()
-                for (group in groups) {
-                    if ((round + group.phase) % group.period == 0) readGroup(group)
+                // Engine off (but the car answering): only RPM and voltage, for the start dip.
+                val quick = Dash.run?.pipeline?.engineOff() == true && round % 20 != 0
+                if (quick) {
+                    readSingle(0x0C)
+                    readAdapterVoltage()
+                } else {
+                    for (group in groups) {
+                        if ((round + group.phase) % group.period == 0) readGroup(group)
+                    }
+                    if (round % 10 == 5) readAdapterVoltage()
                 }
-                if (round % 10 == 5) readAdapterVoltage()
                 round++
 
                 // What the car is doing (see CarState). RPM is read every round.
@@ -199,11 +255,8 @@ object ObdSession {
                 val r = round
                 val perSec = rate
                 val s = state
-                val snapshot = readings.toMap()
-                recorder?.write(snapshot, portVolts, s)
-                val recorded = recorder?.rows ?: 0
-                Dash.update(gen) {
-                    it.copy(readings = snapshot, rounds = r, roundsPerSec = perSec, recordedRows = recorded, carState = s, status = s.label)
+                Dash.publishRound(gen, readings.toMap(), portVolts, portAt, s) {
+                    it.copy(rounds = r, roundsPerSec = perSec, carState = s, status = s.label)
                 }
 
                 if (state == CarState.IGNITION_OFF && silentRounds >= 2) {
@@ -215,6 +268,73 @@ object ObdSession {
                 }
             }
         }
+
+        /**
+         * PROBE: a read-only scan of every computer (the Python --probe), saved in the car's
+         * recordings. NEW CAR (new_car_probe.py): the protocol is found by itself; also the VIN,
+         * maker, fuel type and one reading of everything; a car set up before is recognised by
+         * its VIN, else the phone asks a few questions.
+         */
+        private fun runScan(context: Context, task: Task.Scan, auto: Boolean): Boolean {
+            status("Scanning every computer (read-only, ~20 s)…")
+            val modules = probe.supported(if (auto) 20_000 else 5000)
+            if (modules.isEmpty()) {
+                Dash.finished(gen, "No car computer answered: ignition ON (engine running is best), then try again")
+                return true
+            }
+            val protocolId = protocolId()
+            if (protocolId !in CAN_11BIT) {
+                Dash.finished(gen, "Protocol $protocolId: the app only reads CAN 11-bit cars (6, 8) so far")
+                return true
+            }
+            val protocolName = elm.command("ATDP").firstOrNull() ?: "protocol $protocolId"
+            val report = probe.scan(protocolName, modules)
+            probe.summary(report).forEach { log(it) }
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+
+            if (!task.newCar) {
+                val folder = task.car?.recordings ?: return true.also { Dash.finished(gen, "Scan done (not saved)") }
+                folder.mkdirs()
+                val file = File(folder, "probe_$stamp.json")
+                file.writeText(report.toString(2))
+                Dash.finished(gen, "Probe saved: ${file.name} (summary in the log)")
+                return true
+            }
+
+            status("Reading the VIN and everything once…")
+            val vin = probe.vin()
+            val maker = Cars.makerFromVin(vin)
+            val fuel = probe.fuelType()
+            val codes = probe.troubleCodes()
+            log("VIN ${vin ?: "not shared"}${maker?.let { " · maker: $it" } ?: ""} · fuel ${fuel ?: "?"} · codes: $codes")
+            elm.command("ATSH7E0")
+            val engine = modules[ENGINE].orEmpty()
+            for (pid in engine) readSingle(pid)
+            val snapshot = JSONObject()
+            for (r in readings.values.sortedBy { it.pid }) snapshot.put(r.name, r.text)
+            report.put("vin", vin ?: JSONObject.NULL)
+                .put("maker", maker ?: JSONObject.NULL)
+                .put("fuel", fuel ?: JSONObject.NULL)
+                .put("protocol_id", protocolId)
+                .put("trouble_codes", codes)
+                .put("supported_commands", JSONArray(engine.map { "%02X %s".format(it, Pids.name(it)) }))
+                .put("snapshot", snapshot)
+                .put("saved", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
+
+            val known = Cars.matchVin(vin)
+            if (known != null) {
+                File(Cars.root, "$known/probe.json").writeText(report.toString(2))
+                Cars.setActive(context, known)
+                Dash.finished(gen, "Already set up as $known: probe.json updated, settings unchanged")
+                return true
+            }
+            Dash.finished(gen, "New car scanned: answer the questions",
+                ProbeResult(true, report, vin, maker, fuel, protocolId, null))
+            return true
+        }
+
+        /** The protocol the adapter is using, e.g. "6" (ATDPN answers "A6" after auto-detection). */
+        private fun protocolId(): String = elm.command("ATDPN").firstOrNull()?.trim()?.removePrefix("A") ?: "?"
 
         /**
          * IGNITION ON (engine off) vs. the engine computer's shutdown after key-off: the AMT (7E9)
@@ -235,14 +355,12 @@ object ObdSession {
          */
         private fun waitForNetwork() {
             val started = System.currentTimeMillis()
+            val shown = readings.toMap()   // the last values stay on screen (dimmed as they age)
             while (System.currentTimeMillis() - started < 30_000) {
-                val v = volts()
-                portVolts = v
+                readAdapterVoltage()
                 val heard = elm.monitor(250)
-                recorder?.write(emptyMap(), v, CarState.IGNITION_OFF)
-                val recorded = recorder?.rows ?: 0
-                Dash.update(gen) {
-                    it.copy(adapterVoltage = v, carState = CarState.IGNITION_OFF, status = CarState.IGNITION_OFF.label, recordedRows = recorded)
+                Dash.publishRound(gen, emptyMap(), portVolts, portAt, CarState.IGNITION_OFF) {
+                    it.copy(readings = shown, carState = CarState.IGNITION_OFF, status = CarState.IGNITION_OFF.label)
                 }
                 if (heard.isNotEmpty()) {
                     log("Car's network active again")
@@ -258,12 +376,12 @@ object ObdSession {
          * "01 00", the engine's RPM, and what the car's network carries in 300 ms of listening.
          * Appends to [file], so a reconnect continues the same test.
          */
-        private fun runKeyTest(file: File) {
+        private fun runKeyTest(file: File, carName: String) {
             val clock = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
             val writer = FileWriter(file, true)
             try {
                 if (file.length() == 0L) {
-                    writer.write("# Car Dash ${BuildConfig.VERSION_NAME} KEY TEST, Tata Tiago, adapter ${elm.command("ATI").firstOrNull()}\n")
+                    writer.write("# Car Dash ${BuildConfig.VERSION_NAME} KEY TEST, $carName, adapter ${elm.command("ATI").firstOrNull()}\n")
                     writer.write("# label = key position tapped in the DEV tab; tap = set on the row right after a tap\n")
                     writer.write("time,t,label,tap,volt1,volt2,volt3,ecus,rpm,frames,ids,id_list\n")
                 }
@@ -324,27 +442,6 @@ object ObdSession {
         /** The adapter's battery reading, e.g. "12.6V"; anything else (a stray CAN line) is ignored. */
         private fun volts(): Double? = elm.command("ATRV").firstNotNullOfOrNull { line ->
             VOLTS.matchEntire(line.trim())?.groupValues?.get(1)?.toDoubleOrNull()
-        }
-
-        /** Asks "which sensors do you have?" (01 00, 01 20, …) and collects the answers per computer. */
-        private fun findSupported(): Map<String, List<Int>> {
-            val supported = sortedMapOf<String, MutableList<Int>>()
-            var base = 0x00
-            while (base <= 0xE0) {
-                if (base != 0x00 && supported.values.none { base in it }) break
-                val answer = elm.command("01%02X".format(base), timeoutMs = 5000)
-                log("01%02X → %s".format(base, answer.joinToString(" | ")))
-                for ((header, d) in assembleCan11(answer)) {
-                    if (d.size < 6 || d[0] != 0x41 || d[1] != base) continue
-                    val pids = supported.getOrPut(header) { mutableListOf() }
-                    for (i in 0 until 32) {
-                        if (d[2 + i / 8] and (0x80 shr (i % 8)) != 0) pids += base + i + 1
-                    }
-                }
-                base += 0x20
-            }
-            // 0x20, 0x40, … only say "there are more"; they are not sensors.
-            return supported.mapValues { (_, pids) -> pids.filter { it % 0x20 != 0 } }
         }
 
         /** Sends a request, adding the answer-count digit if the adapter supports it. */
@@ -471,9 +568,8 @@ object ObdSession {
         }
 
         private fun readAdapterVoltage() {
-            val v = volts()
-            portVolts = v
-            Dash.update(gen) { it.copy(adapterVoltage = v) }
+            portVolts = volts()
+            portAt = System.currentTimeMillis()
         }
 
         private fun store(pid: Int, data: IntArray) {
@@ -485,11 +581,9 @@ object ObdSession {
             readings[pid] = Reading(pid, Pids.name(pid), null, text, System.currentTimeMillis())
         }
 
-        private fun publish() = Dash.update(gen) { it.copy(readings = readings.toMap()) }
-
         private fun moduleName(header: String) = when (header) {
             "7E8" -> "ENGINE 7E8"
-            "7E9" -> "AMT 7E9"
+            "7E9" -> "TRANSMISSION 7E9"
             else -> "ECU $header"
         }
 

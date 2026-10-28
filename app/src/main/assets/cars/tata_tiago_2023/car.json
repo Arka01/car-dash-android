@@ -1,0 +1,55 @@
+{
+  "name": "Tata Tiago 1.2 petrol AMT (2023)",
+  "short_name": "TIAGO",
+  "brand": "Tata Motors",
+  "fuel": "petrol",
+  "protocol": "6",
+  "shift_rpm": 3500,
+  "redline_rpm": 4000,
+  "tank_litres": 35.0,
+  "engine_litres": 1.199,
+  "volumetric_efficiency": 0.85,
+  "gears": {
+    "rpm_per_kmh": [
+      149.2,
+      78.8,
+      51.1,
+      37.8,
+      29.1
+    ],
+    "gear_ratios": [
+      3.73,
+      2.05,
+      1.32,
+      0.94,
+      0.74
+    ],
+    "final_drive": 4.06,
+    "tyre": "175/60 R15"
+  },
+  "spec": {
+    "torque_nm": 113,
+    "torque_rpm": 3300,
+    "power_bhp": 84,
+    "power_rpm": 6000
+  },
+  "torque_calibration": {
+    "zero_pct": 12,
+    "full_pct": 56,
+    "full_nm": 100
+  },
+  "smart_alternator": true,
+  "notes": {
+    "protocol": "ISO 15765-4 CAN 11 bit 500 kbaud, as used by the phone app and confirmed with the adapter",
+    "redline_rpm": "the owner's chosen limit (not the engine's maximum): shift lights and the RPM band use it",
+    "tank_litres": "Autocar India spec pages",
+    "engine_litres": "1.2 Revotron displacement; used by the backup fuel estimate",
+    "volumetric_efficiency": "rough typical value",
+    "gear_ratios": "Tata doesn't publish them; assumed in an engineering exercise (LinkedIn, Suriaa)",
+    "tyre": "CarWale / CarDekho",
+    "rpm_per_kmh": "measured with --calibrate-gears on 2026-10-24 from all drives so far: gears 1-4 measured (4th from the 2026-10-24 drive in M mode); 5th barely driven, so theory scaled by the +8.0 % the measured gears came out above it. Re-run --calibrate-gears after holding 5th steady on a drive.",
+    "spec": "Tata's published figures for the BS6 1.2 Revotron, as listed by CarWale (XT Rhythm page); older BS4 listings say 114 Nm at 3500 rpm",
+    "torque_calibration": "From the drive on 2026-10-24: the ECU's torque % read 12 at warm idle (AC off, no torque to the wheels) and 56 at full throttle around 3000-3600 rpm (manifold 89-90 kPa = wide open). The spec's 113 Nm corrected (SAE J1349) to that drive's air, 91 kPa and 36 C intake, is about 100 Nm. Read raw, the ECU's % of its 106 Nm reference gave only ~60 Nm there. An estimate: expect +-10 %.",
+    "smart_alternator": "Drive 2026-10-24: 14.0 V on average while slowing down, 13.4 V while accelerating, below 13 V for 31 % of the time (lows 12.1-12.5 V); every 5 minutes still peaked at 13.8 V or more."
+  }
+}

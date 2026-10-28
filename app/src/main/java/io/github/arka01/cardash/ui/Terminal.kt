@@ -45,10 +45,12 @@ import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.CarState
 import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.KeyMarks
-import io.github.arka01.cardash.Level
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
-import io.github.arka01.cardash.Tiago
+import io.github.arka01.cardash.logic.Calculations
+import io.github.arka01.cardash.logic.Level
+import io.github.arka01.cardash.logic.Rules
+import io.github.arka01.cardash.logic.Values
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -88,7 +90,7 @@ private class Cell(val width: Float, val height: Float)
 
 private val LocalCell = staticCompositionLocalOf { Cell(10f, 12f) }
 
-private enum class Tab { DASH, ALL, DEV }
+private enum class Tab { DASH, INFO, ALL, DEV }
 
 /** What the screen can ask the activity to do. */
 class Actions(
@@ -101,10 +103,17 @@ class Actions(
     val shareTest: () -> Unit,
     val markKey: (String) -> Unit,
     val shareDrive: () -> Unit,
+    val pickCar: () -> Unit,
+    val newCar: () -> Unit,
+    val probe: () -> Unit,
+    val gears: () -> Unit,
+    val refuel: () -> Unit,
+    val replay: () -> Unit,
+    val voice: () -> Unit,
 )
 
 @Composable
-fun TerminalApp(adapterName: String?, actions: Actions) {
+fun TerminalApp(adapterName: String?, voiceOn: Boolean, actions: Actions) {
     val snap by Dash.state.collectAsState()
     var tab by rememberSaveable { mutableStateOf(Tab.DASH) }
     val now by produceState(System.currentTimeMillis()) {
@@ -164,8 +173,9 @@ fun TerminalApp(adapterName: String?, actions: Actions) {
                                 Column { CarBlock(snap, now) }
                             }
                         }
+                        Tab.INFO -> InfoView(snap, now)
                         Tab.ALL -> AllValues(snap, now, perRow = if (landscape) 2 else 1)
-                        Tab.DEV -> DevView(snap, adapterName, actions)
+                        Tab.DEV -> DevView(snap, adapterName, voiceOn, actions)
                     }
                 }
                 Rule(fitCols)
@@ -258,6 +268,19 @@ private fun Snapshot.tint(pid: Int, now: Long, level: (Double?) -> Level = { Lev
 /** A value in a compact format, e.g. "%.0fkPa" -> "57kPa"; "--" if missing. */
 private fun Snapshot.f(pid: Int, format: String) = number(pid)?.let { String.format(Locale.US, format, it) } ?: "--"
 
+/** A calculated value (logic/Pipeline) by name, formatted; "--" if missing, "n/a" if the car can't give it. */
+private fun Snapshot.calc(label: String, format: String): String {
+    val v = derived?.values ?: return "--"
+    if (v.isUnsupported(label)) return "n/a"
+    return v[label]?.let { String.format(Locale.US, format, it) } ?: "--"
+}
+
+/** The PID a named value is read from on this car (e.g. throttle 45, or 11 if the car lacks 45). */
+private fun Snapshot.pidOf(label: String): Int = Values.pidFor(label, supported) ?: 0
+
+/** The battery monitor's verdict (smart alternator aware), OK until it has one. */
+private fun Snapshot.batteryLevel(): Level = derived?.battery?.level ?: Level.OK
+
 // ---------------------------------------------------------------- header and key bar
 
 private val clock = SimpleDateFormat("HH:mm", Locale.US)
@@ -269,6 +292,8 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
         Mode.DEMO -> "◆ DEMO" to AMBER
         Mode.OFF -> "○ OFF" to DIM
         Mode.TEST -> "◇ TEST" to AMBER
+        Mode.REPLAY -> "◆ REPLAY" to AMBER
+        Mode.PROBE -> "◇ SCAN" to AMBER
     }
     Line {
         put("CAR DASH ${BuildConfig.VERSION_NAME} ", GREEN)
@@ -282,6 +307,7 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
         CarState.IGNITION_OFF, CarState.UNKNOWN -> DIM
     }
     val details = buildList {
+        s.car?.let { add(it.shortName) }
         if (s.mode == Mode.LIVE && s.recording != null) add("REC")
         if (s.rounds > 0) add(String.format(Locale.US, "%.1f/s", s.roundsPerSec))
         if (s.fastRead.startsWith("on")) add("fast") else if (s.fastRead.startsWith("off")) add("slow")
@@ -297,16 +323,14 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
 private fun BottomBar(tab: Tab, s: Snapshot, actions: Actions, select: (Tab) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Key("DASH", tab == Tab.DASH) { select(Tab.DASH) }
+        Key("INFO", tab == Tab.INFO) { select(Tab.INFO) }
         Key("ALL", tab == Tab.ALL) { select(Tab.ALL) }
         Key("DEV", tab == Tab.DEV) { select(Tab.DEV) }
+        // 30 characters: DEMO and REPLAY are in the DEV tab; one STOP for every mode.
         when (s.mode) {
-            Mode.OFF -> {
-                Key("LIVE", false, GREEN, actions.connect)
-                Key("DEMO", false, AMBER, actions.demo)
-            }
+            Mode.OFF -> Key("LIVE", false, GREEN, actions.connect)
             Mode.LIVE -> Key("STOP", false, GREEN, actions.stop)
-            Mode.DEMO -> Key("STOP DEMO", false, AMBER, actions.stop)
-            Mode.TEST -> Key("STOP TEST", false, AMBER, actions.stop)
+            else -> Key("STOP", false, AMBER, actions.stop)
         }
     }
 }
@@ -333,61 +357,53 @@ private fun Key(label: String, selected: Boolean, color: Color = GREEN, onClick:
 @Composable
 private fun DriveBlock(s: Snapshot, now: Long) {
     val base = LocalTerm.current.fontSize
+    val car = s.car
     val speed = s.number(0x0D)
     val rpm = s.number(0x0C)
-    val gear = Tiago.gear(speed, rpm)
-    val coolant = s.number(0x05)
-    val oil = s.number(0x5C)
-    val battery = s.number(0x42)
+    val gear = if (car == null) null else Calculations.gear(car, speed, rpm)
+    val limit = s.derived?.warmUp?.rpmLimit   // lower RPM limit while the engine is cold
+    val rpmLevel = { r: Double? -> if (car == null) Level.OK else Rules.rpm(r, car, limit) }
+    val pedal = s.pidOf("Accelerator pedal")
+    val throttle = s.pidOf("Throttle")
 
     // 3 characters of speed at 3x = 9 columns, " km/h  G " = 9, gear up to 4 at 3x = 12: 30 in total.
     Line(scale = 3f) {
         put((speed?.roundToInt()?.toString() ?: "--").padStart(3), s.tint(0x0D, now))
         put(" km/h  G ", DIM, base)
-        put(Tiago.gearName(gear), if (s.fresh(0x0D, now)) GREEN else DIM)
+        put(Calculations.gearName(gear), if (s.fresh(0x0D, now)) GREEN else DIM)
     }
     Line(scale = 1.5f) {
         put("RPM ", DIM, base)
-        put((rpm?.roundToInt()?.toString() ?: "--").padStart(5), s.tint(0x0C, now) { Tiago.rpmLevel(it) })
+        put((rpm?.roundToInt()?.toString() ?: "--").padStart(5), s.tint(0x0C, now) { rpmLevel(it) })
+        limit?.let { put("  max $it", AMBER, base) }
     }
-    BarLine(rpm, Tiago.RPM_SCALE, PANE - 2, colorAt = { Tiago.rpmLevel(it).color() })
-    BarLine(s.number(0x5A), 100.0, PANE - 13) {
+    BarLine(rpm, car?.let { Rules.rpmScale(it) } ?: 5000.0, PANE - 2, colorAt = { rpmLevel(it).color() })
+    BarLine(s.number(pedal), 100.0, PANE - 13) {
         put("PEDAL ", DIM)
-        put(s.f(0x5A, "%.0f%%").padStart(4), s.tint(0x5A, now))
+        put(s.f(pedal, "%.0f%%").padStart(4), s.tint(pedal, now))
         put(" ")
     }
-    BarLine(s.number(0x45), 100.0, PANE - 13) {
+    BarLine(s.number(throttle), 100.0, PANE - 13) {
         put("THROT ", DIM)
-        put(s.f(0x45, "%.0f%%").padStart(4), s.tint(0x45, now))
+        put(s.f(throttle, "%.0f%%").padStart(4), s.tint(throttle, now))
         put(" ")
     }
     Line {
         put("COOL ", DIM)
-        put(s.f(0x05, "%.0f°C").padStart(5), s.tint(0x05, now) { Tiago.coolantLevel(it) })
+        put(s.f(0x05, "%.0f°C").padStart(5), s.tint(0x05, now) { Rules.coolant(it) })
         put(" OIL ", DIM)
-        put(s.f(0x5C, "%.0f°C").padStart(5), s.tint(0x5C, now) { Tiago.oilLevel(it) })
+        put(s.f(0x5C, "%.0f°C").padStart(5), s.tint(0x5C, now) { Rules.oil(it) })
         put(" BAT ", DIM)
-        put(s.f(0x42, "%.1fV").padStart(5), s.tint(0x42, now) { Tiago.batteryLevel(it) })
+        put(s.f(0x42, "%.1fV").padStart(5), s.tint(0x42, now) { s.batteryLevel() })
     }
-    // All active warnings in one place, so nothing amber/red goes unnoticed.
-    val alerts = buildList {
-        if (Tiago.rpmLevel(rpm) == Level.ALARM) add("REDLINE" to RED)
-        else if (Tiago.rpmLevel(rpm) == Level.WARN) add("SHIFT" to AMBER)
-        when (Tiago.coolantLevel(coolant)) {
-            Level.ALARM -> add("OVERHEATING" to RED)
-            Level.WARN -> add((if ((coolant ?: 0.0) < 60) "WARMING UP" else "COOLANT HOT") to AMBER)
-            Level.OK -> {}
-        }
-        if (Tiago.oilLevel(oil) == Level.ALARM) add("OIL OVERHEATING" to RED)
-        else if (Tiago.oilLevel(oil) == Level.WARN && (oil ?: 0.0) >= 60) add("OIL HOT" to AMBER)
-        if (Tiago.batteryLevel(battery) != Level.OK) add("BATTERY" to Tiago.batteryLevel(battery).color())
-    }
+    // All active warnings in one place (logic/Pipeline), so nothing amber/red goes unnoticed.
+    val alerts = s.derived?.alerts.orEmpty()
     Line {
         put("> ", DIM)
         if (alerts.isEmpty()) put("all normal", DIM)
-        alerts.forEachIndexed { i, (text, color) ->
+        alerts.forEachIndexed { i, alert ->
             if (i > 0) put(" · ", DIM)
-            put(text, color)
+            put(alert.text, alert.level.color())
         }
     }
 }
@@ -415,8 +431,12 @@ private fun Pair2(
 private fun EngineBlock(s: Snapshot, now: Long) {
     Section("ENGINE")
     Pair2(s, now, "load", 0x04, "%.1f%%", "timing", 0x0E, "%.1f°")
-    Pair2(s, now, "MAP", 0x0B, "%.0fkPa", "torque", 0x62, "%.0f%%")
-    Pair2(s, now, "trim S", 0x06, "%+.1f%%", "trim L", 0x07, "%+.1f%%", level2 = { Tiago.fuelTrimLevel(it) })
+    Line {
+        cell("MAP", s.f(0x0B, "%.0fkPa"), s.tint(0x0B, now))
+        put("  ")
+        cell("torque", s.calc("Torque", "%.0fNm"), s.tint(0x62, now))
+    }
+    Pair2(s, now, "trim S", 0x06, "%+.1f%%", "trim L", 0x07, "%+.1f%%", level2 = { Rules.fuelTrim(it) })
     Line {
         cell("λ cmd", s.f(0x44, "%.3f"), s.tint(0x44, now))
         put("  ")
@@ -429,15 +449,15 @@ private fun FuelAirBlock(s: Snapshot, now: Long) {
     Section("FUEL")
     Pair2(s, now, "level", 0x2F, "%.1f%%", "rate", 0x5E, "%.2fL/h")
     Section("AIR")
-    Pair2(s, now, "intake", 0x0F, "%.0f°C", "outside", 0x46, "%.0f°C", level1 = { Tiago.intakeLevel(it) })
-    Pair2(s, now, "baro", 0x33, "%.0fkPa", "cat", 0x3C, "%.0f°C", level2 = { Tiago.catalystLevel(it) })
+    Pair2(s, now, "intake", 0x0F, "%.0f°C", "outside", 0x46, "%.0f°C", level1 = { Rules.intake(it) })
+    Pair2(s, now, "baro", 0x33, "%.0fkPa", "cat", 0x3C, "%.0f°C", level2 = { Rules.catalyst(it) })
 }
 
 @Composable
 private fun CarBlock(s: Snapshot, now: Long) {
     Section("CAR")
     Line {
-        cell("battery", s.f(0x42, "%.2fV"), s.tint(0x42, now) { Tiago.batteryLevel(it) })
+        cell("battery", s.f(0x42, "%.2fV"), s.tint(0x42, now) { s.batteryLevel() })
         put("  ")
         cell("port", s.adapterVoltage?.let { String.format(Locale.US, "%.1fV", it) } ?: "--", GREEN)
     }
@@ -477,16 +497,34 @@ private fun AllValues(s: Snapshot, now: Long, perRow: Int) {
     }
 }
 
-/** DEV tab: adapter choice, the KEY TEST, and the connection log. */
+/** DEV tab: cars and their tools, demo/replay, adapter choice, the KEY TEST, recording and the log. */
 @Composable
-private fun DevView(s: Snapshot, adapterName: String?, actions: Actions) {
+private fun DevView(s: Snapshot, adapterName: String?, voiceOn: Boolean, actions: Actions) {
     val test = s.test
     val testing = s.mode == Mode.TEST
+    val idle = s.mode == Mode.OFF
     LazyColumn {
+        item { Section("CAR") }
+        item { Line(wrap = true) { put("car: ", DIM); put(s.car?.let { "${it.shortName} (${it.key})" } ?: "--") } }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Key("CAR", false, GREEN, actions.pickCar)
+                Key("NEW CAR", false, if (idle) GREEN else DIM, actions.newCar)
+                Key("PROBE", false, if (idle) GREEN else DIM, actions.probe)
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Key("GEARS", false, GREEN, actions.gears)
+                Key("REFUEL", false, GREEN, actions.refuel)
+                Key(if (voiceOn) "VOICE ON" else "VOICE OFF", false, if (voiceOn) GREEN else DIM, actions.voice)
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Key("DEMO", s.mode == Mode.DEMO, AMBER, actions.demo)
+                Key("REPLAY", s.mode == Mode.REPLAY, AMBER, actions.replay)
                 Key("ADAPTER", false, GREEN, actions.pickAdapter)
-                Key("SHARE LOG", false, GREEN, actions.share)
             }
         }
         item { Line { put("adapter: ${adapterName ?: "not chosen"}", DIM) } }
@@ -524,11 +562,155 @@ private fun DevView(s: Snapshot, adapterName: String?, actions: Actions) {
         }
         item {
             Line(wrap = true) {
-                put(s.recording?.let { "$it · ${s.recordedRows} rows" } ?: "newest drive is shared", DIM)
+                put(s.recording?.let { "$it · ${s.recordedRows} rows" } ?: "the newest drive of this car is shared", DIM)
             }
         }
         item { Section("LOG") }
+        item { Key("SHARE LOG", false, GREEN, actions.share) }
         item { Line(wrap = true) { put("fast read: ${s.fastRead.ifEmpty { "-" }}", DIM) } }
         items(s.log.reversed()) { line -> Line(wrap = true) { put(line) } }
+    }
+}
+
+// ---------------------------------------------------------------- INFO tab
+
+private fun fmt(x: Double?, format: String) = x?.let { String.format(Locale.US, format, it) } ?: "--"
+
+/** Two label/value cells on one line (14 + 2 + 14 characters). */
+@Composable
+private fun Cells(l1: String, v1: String, c1: Color, l2: String = "", v2: String = "", c2: Color = GREEN) = Line {
+    cell(l1, v1, c1)
+    if (l2.isNotEmpty()) {
+        put("  ")
+        cell(l2, v2, c2)
+    }
+}
+
+/**
+ * Everything the Python dashboard calculates, as terminal lines: the car, engine state
+ * (hot / warm-up stage), torque and power, fuel left and range, battery and charging,
+ * trip computer, temperature trends and the pedal sensor check.
+ */
+@Composable
+private fun InfoView(s: Snapshot, now: Long) {
+    val d = s.derived
+    val car = s.car
+    val live = s.mode != Mode.OFF && d != null
+    val on = if (live) GREEN else DIM
+    LazyColumn {
+        item { Section("CAR") }
+        item { Line(wrap = true) { put(car?.name ?: "no car chosen", GREEN) } }
+        item { Line { put("VIN ", DIM); put(s.vin ?: "--", on) } }
+        item {
+            Line(wrap = true) {
+                put("trouble codes ", DIM)
+                val codes = s.troubleCodes
+                put(codes ?: "--", if (codes == null || codes.startsWith("none")) on else AMBER)
+            }
+        }
+        item {
+            Line(wrap = true) {
+                put("gears ", DIM)
+                put(car?.gears?.joinToString(" ") { String.format(Locale.US, "%.0f", it) } ?: "not known: drive, then [GEARS]", GREEN)
+            }
+        }
+        item { Line(wrap = true) { put(s.protocol ?: "", DIM) } }
+
+        item { Section("ENGINE") }
+        item {
+            Line(wrap = true) {
+                val e = d?.engine
+                if (e == null) put("state --", DIM) else { put(e.state, e.level.color()); put("  ${e.detail}", DIM) }
+            }
+        }
+        item { Cells("torque", s.calc("Torque", "%.0fNm"), on, "power", s.calc("Power", "%.0fbhp"), on) }
+        item { Cells("peak", fmt(d?.peaks?.get("Torque"), "%.0fNm"), on, "peak", fmt(d?.peaks?.get("Power"), "%.0fbhp"), on) }
+        item {
+            val soak = d?.values?.get("Heat soak")
+            Cells("heat soak", if (d?.values?.isUnsupported("Heat soak") == true) "n/a" else fmt(soak, "%+.0f°C"),
+                if (live) Rules.heatSoak(soak).color() else DIM, "boost", s.calc("Boost", "%+.2fbar"), on)
+        }
+        item {
+            val t = d?.trends.orEmpty()
+            Cells("cool/min", fmt(t["Coolant"], "%+.1f°"), on, "oil/min", fmt(t["Oil"], "%+.1f°"), on)
+        }
+        item {
+            val t = d?.trends.orEmpty()
+            Cells("air/min", fmt(t["Intake air"], "%+.1f°"), on, "cat/min", fmt(t["Catalyst"], "%+.0f°"), on)
+        }
+
+        item { Section("FUEL") }
+        val fuel = d?.fuel
+        if (fuel == null) {
+            item { Line(wrap = true) { put(if (car?.tankLitres == null) "tank size not set for this car" else "--", DIM) } }
+        } else {
+            item {
+                Line {
+                    put("left ", DIM)
+                    val low = fuel.litres?.let { it < 8 } == true
+                    put(fmt(fuel.litres, "%.1fL"), if (low) AMBER else on)
+                    put(fuel.sigma?.let { String.format(Locale.US, " ±%.1f", it) } ?: "", DIM)
+                    put("  range ", DIM)
+                    put(fmt(fuel.rangeKm, "%.0fkm"), on)
+                }
+            }
+            item { Cells("now L/100", fmt(fuel.nowLPer100km, "%.1f"), on, "trip L/100", fmt(fuel.tripLPer100km, "%.1f"), on) }
+            item { Cells("avg L/100", fmt(fuel.consumptionLPer100km, "%.1f"), on, "used", fmt(fuel.usedTrip, "%.2fL"), on) }
+            item { Line(wrap = true) { put("flow ", DIM); put(fmt(fuel.flowLph, "%.2fL/h"), on); put(" ${fuel.flowSource ?: ""}", DIM) } }
+            item {
+                Line(wrap = true) {
+                    put("float ", DIM)
+                    put(fmt(fuel.sensorPct, "%.0f%%") + " = " + fmt(fuel.sensorLitres, "%.1fL"), on)
+                    put("  fill-ups ${fuel.fillUpsLearned}", DIM)
+                }
+            }
+            items(fuel.notes) { note -> Line(wrap = true) { put(note, AMBER) } }
+        }
+
+        item { Section("BATTERY") }
+        val b = d?.battery
+        if (b == null) {
+            item { Line { put("--", DIM) } }
+        } else {
+            item {
+                Line(wrap = true) {
+                    put(b.state.ifEmpty { "BATTERY" }, b.level.color())
+                    put(String.format(Locale.US, " %.2fV", b.volts), on)
+                    put(" (${b.source})", DIM)
+                }
+            }
+            if (b.detail.isNotEmpty()) item { Line(wrap = true) { put(b.detail, DIM) } }
+            item { Cells("ECU", fmt(b.ecuVolts, "%.2fV"), on, "port", fmt(b.portVolts, "%.2fV"), on) }
+            b.crank?.let { c ->
+                item {
+                    Line(wrap = true) {
+                        put("start dip ", DIM)
+                        put(String.format(Locale.US, "%.2fV", c.minVolts), Rules.of(c.level).color())
+                        put(" ${c.text} (${c.samples} readings, ${c.time.replace('T', ' ')})", DIM)
+                    }
+                }
+            }
+            b.sourcesNote?.let { note -> item { Line(wrap = true) { put(note, AMBER) } } }
+        }
+
+        item { Section("TRIP") }
+        item { Cells("distance", s.calc("Trip distance", "%.1fkm"), on, "avg", s.calc("Trip avg speed", "%.0fkm/h"), on) }
+        item { Cells("accel", s.calc("Acceleration", "%+.2fg"), on, "rpm/kmh", s.calc("RPM per km/h", "%.1f"), on) }
+        item { Cells("0-60", s.calc("0-60 km/h best", "%.1fs"), on, "0-100", s.calc("0-100 km/h best", "%.1fs"), on) }
+        item { Cells("top speed", fmt(d?.peaks?.get("Speed"), "%.0fkm/h"), on, "top rpm", fmt(d?.peaks?.get("RPM"), "%.0f"), on) }
+        item {
+            val mismatch = d?.values?.get("Pedal sensor mismatch")
+            val text = when {
+                d?.values?.isUnsupported("Pedal sensor mismatch") == true -> "n/a"
+                mismatch == null -> "move pedal fully once"
+                else -> String.format(Locale.US, "%.0fpts", mismatch)
+            }
+            Line { put("pedal check ", DIM); put(text, if (live) Rules.pedalMismatch(mismatch).color() else DIM) }
+        }
+        item {
+            val km = s.number(0x21)
+            Cells("km w/ MIL", s.f(0x21, "%.0f"), if (live) Rules.drivenWithMil(km).color() else DIM,
+                "clr", s.f(0x31, "%.0fkm"), on)
+        }
     }
 }

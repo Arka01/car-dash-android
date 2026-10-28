@@ -6,23 +6,36 @@ import android.content.ClipData
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.text.InputType
+import android.widget.CheckBox
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
+import io.github.arka01.cardash.cars.Cars
+import io.github.arka01.cardash.logic.GearCalibration
 import io.github.arka01.cardash.obd.Adapters
 import io.github.arka01.cardash.obd.SavedAdapter
 import io.github.arka01.cardash.ui.Actions
 import io.github.arka01.cardash.ui.TerminalApp
 
-/** Phone screen. The look is in ui/Terminal.kt; this class handles Bluetooth permission, adapter and sharing. */
+/**
+ * Phone screen. The look is in ui/Terminal.kt; this class handles Bluetooth permission, adapter,
+ * sharing and the dialogs (car choice, NEW CAR questions, REFUEL, GEARS, REPLAY).
+ */
 class MainActivity : ComponentActivity() {
     private var adapterName by mutableStateOf<String?>(null)
+    private var voiceOn by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,6 +43,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(SystemBarStyle.dark(black), SystemBarStyle.dark(black))
 
         adapterName = Adapters.chosen(this)?.name
+        Cars.init(this)
+        Speech.init(this)
+        voiceOn = !Speech.muted(this)
+        if (Dash.state.value.car == null) Dash.chooseCar(this, Cars.active(this).key)
         val actions = Actions(
             connect = ::connect,
             demo = { Dash.startDemo(this) },
@@ -40,8 +57,23 @@ class MainActivity : ComponentActivity() {
             shareTest = ::shareTest,
             markKey = { Dash.markKey(it) },
             shareDrive = ::shareDrive,
+            pickCar = ::pickCar,
+            newCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = true) } },
+            probe = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
+            gears = ::calibrateGears,
+            refuel = ::refuel,
+            replay = ::replay,
+            voice = {
+                voiceOn = !voiceOn
+                Speech.setMuted(this, !voiceOn)
+            },
         )
-        setContent { TerminalApp(adapterName, actions) }
+        setContent {
+            val snap by Dash.state.collectAsState()
+            // A finished NEW CAR scan of a car not set up yet: ask the questions.
+            LaunchedEffect(snap.probe) { snap.probe?.let { askNewCar(it) } }
+            TerminalApp(adapterName, voiceOn, actions)
+        }
 
         if (!Adapters.hasPermission(this)) askPermission()
     }
@@ -137,6 +169,122 @@ class MainActivity : ComponentActivity() {
         }
         startActivity(Intent.createChooser(send, "Share drive"))
     }
+
+    // ---------------------------------------------------------------- cars and their tools
+
+    private fun pickCar() {
+        val keys = Cars.all()
+        val names = keys.map { key -> Cars.load(key).let { "${it.shortName}  ·  ${it.name}" } }
+        AlertDialog.Builder(this)
+            .setTitle("Which car? (NEW CAR sets up another)")
+            .setItems(names.toTypedArray()) { _, i ->
+                Dash.chooseCar(this, keys[i])
+                if (Dash.isRunning) toast("Used from the next start")
+            }
+            .show()
+    }
+
+    /** The NEW CAR questions (new_car_probe.py asks the same); every answer is optional. */
+    private fun askNewCar(p: ProbeResult) {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 16, 48, 0) }
+        fun field(hint: String, value: String, type: Int): EditText {
+            box.addView(TextView(this).apply { text = hint })
+            return EditText(this).apply { setText(value); inputType = type }.also { box.addView(it) }
+        }
+        val text = InputType.TYPE_CLASS_TEXT
+        val decimal = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        val name = field("Car name, e.g. Maruti Swift 1.2 petrol (2019)", p.maker?.let { "$it car" } ?: "My car", text)
+        val fuel = field("Fuel (petrol / diesel / cng)", p.fuel ?: "petrol", text)
+        val tank = field("Fuel tank size in litres (owner's manual)", "", decimal)
+        val engine = field("Engine size in litres or cc, e.g. 1.2 or 1199", "", decimal)
+        val redline = field("RPM where the display turns red (your own limit)", "4000", InputType.TYPE_CLASS_NUMBER)
+        AlertDialog.Builder(this)
+            .setTitle("New car" + (p.vin?.let { " · VIN $it" } ?: ""))
+            .setView(box)
+            .setCancelable(false)
+            .setPositiveButton("Set up") { _, _ ->
+                val size = engine.text.toString().toDoubleOrNull()
+                val key = Dash.createCar(
+                    this, p,
+                    title = name.text.toString().trim().ifEmpty { "My car" },
+                    fuel = fuel.text.toString().trim().lowercase().ifEmpty { "petrol" },
+                    tank = tank.text.toString().toDoubleOrNull(),
+                    engine = size?.let { if (it > 20) it / 1000 else it },   // cc -> litres
+                    redline = redline.text.toString().toIntOrNull() ?: 4000,
+                )
+                toast("Set up: $key. Drive through every gear, then GEARS.")
+            }
+            .setNegativeButton("Cancel") { _, _ -> Dash.clearProbe() }
+            .show()
+    }
+
+    /** REFUEL: litres from the pump receipt, and whether it was filled to the automatic cut-off. */
+    private fun refuel() {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 16, 48, 0) }
+        val litres = EditText(this).apply {
+            hint = "litres added (receipt)"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        val full = CheckBox(this).apply { text = "Filled to the automatic cut-off (full)" }
+        box.addView(litres)
+        box.addView(full)
+        AlertDialog.Builder(this)
+            .setTitle("Fill-up")
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val l = litres.text.toString().toDoubleOrNull()
+                if (l == null && !full.isChecked) toast("Nothing saved: enter litres or tick full")
+                else toast(Dash.refuel(this, l, full.isChecked))
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** GEARS: measure each gear from the car's recorded drives, then offer to save (--calibrate-gears). */
+    private fun calibrateGears() {
+        val car = Cars.active(this)
+        toast("Measuring gears from ${car.shortName}'s drives…")
+        Thread {
+            val result = try {
+                GearCalibration.run(car)
+            } catch (e: Exception) {
+                null
+            }
+            runOnUiThread {
+                if (result == null) {
+                    toast("Gear calibration failed")
+                    return@runOnUiThread
+                }
+                val dialog = AlertDialog.Builder(this)
+                    .setTitle("Gears: ${car.shortName}")
+                    .setMessage(result.lines.joinToString("\n"))
+                    .setNegativeButton(if (result.suggested == null) "OK" else "Don't save", null)
+                result.suggested?.let { gears ->
+                    dialog.setPositiveButton("Save") { _, _ ->
+                        Cars.saveGears(car, gears)
+                        Dash.chooseCar(this, car.key)   // reload its settings
+                        toast("Saved: the gear display now uses them" + if (Dash.isRunning) " (from the next start)" else "")
+                    }
+                }
+                dialog.show()
+            }
+        }.start()
+    }
+
+    /** REPLAY: play a drive of the active car again (the Python --replay). */
+    private fun replay() {
+        val drives = Dash.drives(this)
+        if (drives.isEmpty()) {
+            toast("No drive recorded for ${Cars.active(this).shortName} yet")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Replay which drive?")
+            .setItems(drives.map { it.name }.toTypedArray()) { _, i -> Dash.startReplay(this, drives[i]) }
+            .show()
+    }
+
+    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
     private fun askPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
