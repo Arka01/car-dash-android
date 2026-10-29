@@ -76,18 +76,19 @@ cat ~/car-dash-signing/SIGNING_PASSWORD.txt; echo
 
 The screen is a terminal: 30 characters per line, one column in portrait, two in landscape
 (just rotate the phone). The text size adjusts so the whole DASH page fits the screen.
-The bottom line has the keys:
+The app opens on **DASH**. Tap **[≡]** (top-left) to open the **sidebar** with the screens and
+LIVE / STOP; tap an entry, or tap the dimmed screen or press Back to close it.
 
-| Key | What it does |
+| Sidebar entry | What it does |
 |---|---|
 | **[DASH]** | Big speed and gear, RPM and its bar, pedal and throttle bars, temperatures, warnings, then ENGINE / FUEL / AIR / CAR details |
 | **[INFO]** | Everything calculated: car, VIN, trouble codes, engine state, torque/power, fuel left and range, battery, trip (see "INFO tab") |
 | **[ALL]** | Every value the engine computer reports (about 50), by PID number |
-| **[DEV]** | Car tools (**[CAR] [NEW CAR] [PROBE] [GEARS] [REFUEL] [VOICE]**), **[DEMO] [REPLAY]**, **[ADAPTER]**, the **KEY TEST**, recording, **[SHARE LOG]** and the log |
+| **DEV** | Car tools (**[CAR] [NEW CAR] [PROBE] [GEARS] [REFUEL] [VOICE]**), **[DEMO] [REPLAY]**, **[ADAPTER]**, the **KEY TEST**, recording, **[SHARE LOG]** and the log |
 | **[LIVE]** | Connect to the car (live data) |
 | **[STOP]** | Stop whatever runs (LIVE, DEMO, REPLAY, TEST, scan) |
 
-**Top line:** `● LIVE` (green) = real data from the car, `◆ DEMO` (amber) = the recorded drive,
+**Top line:** `[≡]`, the screen's name, then `● LIVE` (green) = real data from the car, `◆ DEMO` (amber) = the recorded drive,
 `◆ REPLAY` (amber) = a recorded drive of the chosen car, `◇ TEST` (amber) = KEY TEST running,
 `◇ SCAN` (amber) = PROBE / NEW CAR scan, `○ OFF` = nothing running. The second line shows the status, how many rounds per second
 RPM/speed refresh, and `fast` or `slow` reading.
@@ -134,13 +135,13 @@ it shows `1`. Reverse can't be told apart from 1st gear (OBD speed is never nega
 other values every 3rd, 10th or 50th round. Up to 6 values are asked for in one question. At
 connect each batch is checked once: a batch whose answer doesn't contain exactly its values is
 read one value at a time instead (`slow`); while driving, a batch that answers garbled 3 times in
-a row does the same. **[DEV]** shows the result (`fast read: on: …`).
+a row does the same. **DEV** shows the result (`fast read: on: …`).
 
 ---
 
 ## Test checklist
 
-**At your desk (no car):** **[DEV] → [DEMO]** → the values should move like a real drive: speed, gear
+**At your desk (no car):** **[≡] → DEV → [DEMO]** → the values should move like a real drive: speed, gear
 changes, the RPM bar turning amber/red near 3500/4000. Try portrait and landscape: everything
 on DASH must be visible without scrolling.
 
@@ -148,12 +149,12 @@ on DASH must be visible without scrolling.
 
 1. Close **Car Scanner** first. Only one app can talk to the adapter at a time.
 2. Open **Car Dash** → allow **Nearby devices** (needed for Bluetooth).
-3. **[DEV] → [ADAPTER]:** should show the vLinker. If not, tap it and choose the vLinker.
-4. **[LIVE].** The status goes *Connecting… → Setting up adapter… → Finding sensors… →
+3. **[≡] → DEV → [ADAPTER]:** should show the vLinker. If not, tap it and choose the vLinker.
+4. **[≡] → LIVE.** The status goes *Connecting… → Setting up adapter… → Finding sensors… →
    Reading all values once… → Testing fast read… → Connected*.
-5. **[DEV]:** `fast read: on: …` is the goal. The second line on top should show several
+5. **DEV:** `fast read: on: …` is the goal. The second line on top should show several
    rounds per second (e.g. `8.0/s`).
-6. **[DEV] → [SHARE LOG]** and send the text. It contains every value plus the connection log.
+6. **[≡] → DEV → [SHARE LOG]** and send the text. It contains every value plus the connection log.
 
 The AMT computer (7E9) is listed in the log but not read: it refuses direct requests, and its
 9 values only repeat the engine's (no gear).
@@ -228,8 +229,8 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 - A reconnect during the drive continues the same file. A run that never connected leaves no file.
 - Files are kept per car in `files/cars/<car>/recordings/` (drives from builds 5-6 were moved
   to the Tiago's folder).
-- **[DEV] → [SHARE DRIVE]** sends the chosen car's newest drive (both files), e.g. by email or to Drive.
-- **[DEV] → [REPLAY]** plays one of the chosen car's drives again, with all calculations (nothing is saved).
+- **[≡] → DEV → [SHARE DRIVE]** sends the chosen car's newest drive (both files), e.g. by email or to Drive.
+- **[≡] → DEV → [REPLAY]** plays one of the chosen car's drives again, with all calculations (nothing is saved).
   About 1 MB per 5 minutes.
 - The screen stays on while LIVE / DEMO / TEST runs: a locked phone may pause the app,
   which would leave gaps in the recording.
@@ -245,7 +246,7 @@ later tell LOCK / ACC / ON / START / RUN apart. Each row: battery voltage at the
 (3 readings), which car computers answer, the engine's RPM, and how many messages the car's
 network carries (the adapter only listens).
 
-1. Key at **LOCK**, Car Scanner closed. **[DEV] → [START TEST]**, wait for rows to appear.
+1. Key at **LOCK**, Car Scanner closed. **[≡] → DEV → [START TEST]**, wait for rows to appear.
 2. Tap the position **every time you turn the key**, wait ~20 s at each:
    **[LOCK]** → **[ACC]** → **[ON]** → **[START]** (tap as you crank) → **[RUN]** (idle ~30 s)
    → turn the engine off and tap where the key ends up (**[LOCK]** or **[ACC]**), wait ~2 minutes
@@ -281,10 +282,10 @@ which needs a Play developer account. Until then, only the phone screen is usabl
 | *No car computer answered (ignition on?)* | Turn the ignition on, then Stop → Connect |
 | *VIN isn't the TIAGO's or any car set up* | You're in another car: **[NEW CAR]**, or **[CAR]** to choose it |
 | *Protocol N: the app only reads CAN 11-bit cars* | This car uses another OBD protocol (older or 29-bit CAN); not supported by the app yet |
-| Gear shows `-` | The car's gears aren't known: drive through every gear, then **[DEV] → [GEARS]** |
+| Gear shows `-` | The car's gears aren't known: drive through every gear, then **[≡] → DEV → [GEARS]** |
 | Values show `NO DATA` or `refused` | That computer didn't answer that value this round; share the text |
 | Values are dim | Not updated for 10 s or more (or never answered): the link has stalled |
-| **[DEV]** says `fast read: off: …` | Batching didn't pass the self-test; values are read one at a time (slower, still correct). Share the log |
+| **DEV** says `fast read: off: …` | Batching didn't pass the self-test; values are read one at a time (slower, still correct). Share the log |
 
 ---
 
@@ -293,7 +294,7 @@ which needs a Play developer account. Until then, only the phone screen is usabl
 | File | Purpose |
 |---|---|
 | `app/src/main/java/.../Dash.kt` | The hub: live, demo or replay data in, the run's car / calculations / recording, one snapshot out to both screens |
-| `app/src/main/java/.../ui/Terminal.kt` | The phone's terminal look (DASH / INFO / ALL / DEV, portrait and landscape) |
+| `app/src/main/java/.../ui/Terminal.kt` | The phone's terminal look (sidebar with DASH / INFO / ALL / DEV, portrait and landscape) |
 | `app/src/main/java/.../cars/` + `assets/cars/` | Car settings (`car.json`, same format as the Python project), per-car folders, VIN, NEW CAR names |
 | `app/src/main/java/.../logic/` | The Python dashboard's calculations: `Pipeline` (runs them all each round), `Rules` (warning levels), `Calculations` (gear, torque/power, heat soak, boost, hot state), `TripComputer`, `PedalCheck`, `Trends`, `BatteryMonitor`, `FuelTracker`, `WarmUpAdvisor`, `GearCalibration` |
 | `app/src/main/java/.../Speech.kt` | Says the warm-up messages (phone voice) |

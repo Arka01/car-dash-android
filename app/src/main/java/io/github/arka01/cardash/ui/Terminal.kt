@@ -1,9 +1,17 @@
 package io.github.arka01.cardash.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicText
@@ -23,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -60,8 +70,9 @@ import kotlin.math.roundToInt
 /*
  * The phone screen: a green-on-black terminal. Every line is fixed-width monospace text,
  * 30 characters per column. Portrait: one column. Landscape: two columns side by side.
- * The font size is the largest that fits both the width and the height, so the DASH tab
- * always fits on one screen without scrolling.
+ * The font size is the largest that fits both the width and the height, so the DASH screen
+ * always fits on one screen without scrolling. The screens (DASH, INFO, ALL, DEV) and LIVE/STOP
+ * are in a sidebar that slides in from the left (≡ in the top-left corner).
  */
 
 private val GREEN = Color(0xFF33FF66)
@@ -71,13 +82,14 @@ private val RED = Color(0xFFFF4D4D)
 private val BLACK = Color.Black
 
 private const val PANE = 30       // characters per column
+private const val SIDEBAR = 16    // characters across the sidebar
 private const val GAP = 2         // characters between the two landscape columns
 private const val CHAR = 0.6f     // a monospace character is ~0.6 of the font size wide
 private const val LINE = 1.2f     // line height, in font sizes
 private const val OLD_MS = 10_000
 
 // Height of each part in lines (bigger lines count by their size); used to fit the font.
-private const val FRAME_LINES = 5f     // header (2), two rules, the key bar
+private const val FRAME_LINES = 3f     // header (2), rule
 private const val DRIVE_LINES = 9.5f   // speed (3), RPM (1.5), RPM bar, pedal, throttle, temps, warnings
 private const val ENGINE_LINES = 5f
 private const val FUEL_AIR_LINES = 5f
@@ -115,7 +127,9 @@ class Actions(
 @Composable
 fun TerminalApp(adapterName: String?, voiceOn: Boolean, actions: Actions) {
     val snap by Dash.state.collectAsState()
-    var tab by rememberSaveable { mutableStateOf(Tab.DASH) }
+    var tab by rememberSaveable { mutableStateOf(Tab.DASH) }   // DASH when the app opens
+    var menuOpen by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = menuOpen) { menuOpen = false }   // Back closes the sidebar first
     val now by produceState(System.currentTimeMillis()) {
         while (true) {
             value = System.currentTimeMillis()
@@ -134,7 +148,7 @@ fun TerminalApp(adapterName: String?, voiceOn: Boolean, actions: Actions) {
     BoxWithConstraints(Modifier.fillMaxSize().background(BLACK).safeDrawingPadding().padding(4.dp)) {
         val landscape = maxWidth > maxHeight
         val density = LocalDensity.current
-        val keyPaddingPx = with(density) { 20.dp.toPx() }
+        val keyPaddingPx = with(density) { 20.dp.toPx() }   // the ≡ key is taller than a text line
         val cols = if (landscape) PANE * 2 + GAP else PANE
         val lines = if (landscape) {
             FRAME_LINES + maxOf(DRIVE_LINES + CAR_LINES, ENGINE_LINES + FUEL_AIR_LINES)
@@ -149,37 +163,41 @@ fun TerminalApp(adapterName: String?, voiceOn: Boolean, actions: Actions) {
         val style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = fontSize, lineHeight = fontSize * LINE, color = GREEN)
 
         CompositionLocalProvider(LocalTerm provides style, LocalCell provides Cell(fontPx * CHAR, fontPx * LINE)) {
-            Column(Modifier.fillMaxSize()) {
-                Header(snap, now, fitCols)
-                Rule(fitCols)
-                Column(Modifier.weight(1f).fillMaxWidth()) {
-                    when (tab) {
-                        Tab.DASH -> if (landscape) {
-                            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
-                                    Column { DriveBlock(snap, now) }
-                                    Column { CarBlock(snap, now) }
+            Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize()) {
+                    Header(snap, now, fitCols, tab) { menuOpen = true }
+                    Rule(fitCols)
+                    Column(Modifier.weight(1f).fillMaxWidth()) {
+                        when (tab) {
+                            Tab.DASH -> if (landscape) {
+                                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                    Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                                        Column { DriveBlock(snap, now) }
+                                        Column { CarBlock(snap, now) }
+                                    }
+                                    Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                                        Column { EngineBlock(snap, now) }
+                                        Column { FuelAirBlock(snap, now) }
+                                    }
                                 }
-                                Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                            } else {
+                                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Column { DriveBlock(snap, now) }
                                     Column { EngineBlock(snap, now) }
                                     Column { FuelAirBlock(snap, now) }
+                                    Column { CarBlock(snap, now) }
                                 }
                             }
-                        } else {
-                            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                                Column { DriveBlock(snap, now) }
-                                Column { EngineBlock(snap, now) }
-                                Column { FuelAirBlock(snap, now) }
-                                Column { CarBlock(snap, now) }
-                            }
+                            Tab.INFO -> InfoView(snap, now)
+                            Tab.ALL -> AllValues(snap, now, perRow = if (landscape) 2 else 1)
+                            Tab.DEV -> DevView(snap, adapterName, voiceOn, actions)
                         }
-                        Tab.INFO -> InfoView(snap, now)
-                        Tab.ALL -> AllValues(snap, now, perRow = if (landscape) 2 else 1)
-                        Tab.DEV -> DevView(snap, adapterName, voiceOn, actions)
                     }
                 }
-                Rule(fitCols)
-                BottomBar(tab, snap, actions) { tab = it }
+                Sidebar(menuOpen, tab, snap, actions, close = { menuOpen = false }) {
+                    tab = it
+                    menuOpen = false
+                }
             }
         }
     }
@@ -286,7 +304,7 @@ private fun Snapshot.batteryLevel(): Level = derived?.battery?.level ?: Level.OK
 private val clock = SimpleDateFormat("HH:mm", Locale.US)
 
 @Composable
-private fun Header(s: Snapshot, now: Long, cols: Int) {
+private fun Header(s: Snapshot, now: Long, cols: Int, tab: Tab, openMenu: () -> Unit) {
     val (mark, modeColor) = when (s.mode) {
         Mode.LIVE -> "● LIVE" to GREEN
         Mode.DEMO -> "◆ DEMO" to AMBER
@@ -295,11 +313,14 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
         Mode.REPLAY -> "◆ REPLAY" to AMBER
         Mode.PROBE -> "◇ SCAN" to AMBER
     }
-    Line {
-        put("CAR DASH ${BuildConfig.VERSION_NAME} ", GREEN)
-        put(mark, modeColor)
-        put("  ")
-        put(clock.format(Date(now)), GREEN)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Key("≡", false, GREEN, openMenu)
+        Line {
+            put(" ${tab.name}  ", GREEN)
+            put(mark, modeColor)
+            put("  ")
+            put(clock.format(Date(now)), GREEN)
+        }
     }
     val stateColor = when (s.carState) {
         CarState.ENGINE_ON -> GREEN
@@ -319,20 +340,56 @@ private fun Header(s: Snapshot, now: Long, cols: Int) {
     }
 }
 
+/**
+ * The sidebar: slides in from the left over a dimmed screen. Tapping a screen opens it and
+ * closes the sidebar; tapping the dimmed part or Back just closes it. LIVE / STOP at the bottom.
+ * (Not opened by swiping from the edge: on Android that swipe means Back.)
+ */
 @Composable
-private fun BottomBar(tab: Tab, s: Snapshot, actions: Actions, select: (Tab) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Key("DASH", tab == Tab.DASH) { select(Tab.DASH) }
-        Key("INFO", tab == Tab.INFO) { select(Tab.INFO) }
-        Key("ALL", tab == Tab.ALL) { select(Tab.ALL) }
-        Key("DEV", tab == Tab.DEV) { select(Tab.DEV) }
-        // 30 characters: DEMO and REPLAY are in the DEV tab; one STOP for every mode.
-        when (s.mode) {
-            Mode.OFF -> Key("LIVE", false, GREEN, actions.connect)
-            Mode.LIVE -> Key("STOP", false, GREEN, actions.stop)
-            else -> Key("STOP", false, AMBER, actions.stop)
+private fun Sidebar(open: Boolean, tab: Tab, s: Snapshot, actions: Actions, close: () -> Unit, select: (Tab) -> Unit) {
+    AnimatedVisibility(open, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(BLACK.copy(alpha = 0.7f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = close),
+        )
+    }
+    AnimatedVisibility(open, enter = slideInHorizontally { -it }, exit = slideOutHorizontally { -it }) {
+        val width = with(LocalDensity.current) { (SIDEBAR * LocalCell.current.width).toDp() }
+        Row(Modifier.fillMaxHeight()) {
+            Column(Modifier.width(width).fillMaxHeight().background(BLACK)) {
+                Line { put("CAR DASH", GREEN) }
+                Line { put(BuildConfig.VERSION_NAME, DIM) }
+                Line { put("─".repeat(SIDEBAR), DIM) }
+                for (t in Tab.entries) SideItem(t.name, t == tab) { select(t) }
+                Line { put("─".repeat(SIDEBAR), DIM) }
+                when (s.mode) {
+                    Mode.OFF -> SideItem("LIVE", false, GREEN) { actions.connect(); close() }
+                    Mode.LIVE -> SideItem("STOP", false, GREEN) { actions.stop(); close() }
+                    else -> SideItem("STOP", false, AMBER) { actions.stop(); close() }
+                }
+            }
+            Box(Modifier.width(1.dp).fillMaxHeight().background(DIM))
         }
     }
+}
+
+/** One sidebar entry, as wide as the sidebar (easy to hit), inverted when selected. */
+@Composable
+private fun SideItem(label: String, selected: Boolean, color: Color = GREEN, onClick: () -> Unit) {
+    val style = LocalTerm.current
+    BasicText(
+        text = " $label",
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .background(if (selected) color else BLACK)
+            .padding(vertical = 12.dp),
+        style = style.copy(color = if (selected) BLACK else color),
+        maxLines = 1,
+        softWrap = false,
+    )
 }
 
 /** A terminal-style button: [LABEL], inverted when selected. */
