@@ -1,5 +1,6 @@
-# Builds the APK on every push to main and publishes it as a GitHub Release,
-# so the phone can download it from the repo's Releases page.
+# Builds the APK and the app bundle (.aab) on every push to main and publishes both as a
+# GitHub Release: the APK for installing straight from the Releases page, the .aab for
+# uploading to Google Play (internal testing).
 name: Build APK
 
 on:
@@ -36,17 +37,21 @@ jobs:
           echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/cardash.p12"
           echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/cardash.p12" >> "$GITHUB_ENV"
 
-      - name: Build APK
+      - name: Build APK and app bundle
         env:
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-        run: gradle assembleRelease --console=plain --stacktrace
+        run: gradle assembleRelease bundleRelease --console=plain --stacktrace
 
-      - name: Name the APK
-        run: cp app/build/outputs/apk/release/app-release.apk "car-dash-${{ github.run_number }}.apk"
+      - name: Name the files
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk "car-dash-${{ github.run_number }}.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "car-dash-${{ github.run_number }}.aab"
 
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: build-${{ github.run_number }}
           name: Build ${{ github.run_number }}
           body: ${{ github.event.head_commit.message }}
-          files: car-dash-${{ github.run_number }}.apk
+          files: |
+            car-dash-${{ github.run_number }}.apk
+            car-dash-${{ github.run_number }}.aab

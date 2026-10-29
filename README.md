@@ -24,7 +24,8 @@ code pushed to GitHub ──▶ GitHub Actions builds the APK (~5 min) ──▶
 ```
 
 Nothing is built on the laptop. Every push to `main` creates a new release called
-**Build N** with the file `car-dash-N.apk`.
+**Build N** with `car-dash-N.apk` (install directly) and `car-dash-N.aab` (upload to Google Play,
+see "Google Play").
 
 ---
 
@@ -254,6 +255,21 @@ network carries (the adapter only listens).
 3. **[STOP TEST]**, then **[SHARE TEST]** to send the CSV file.
 
 Files are kept in the app (`files/dev/keytest_<date>_<time>.csv`); **[SHARE TEST]** sends the newest.
+
+---
+
+## Google Play (internal testing)
+
+Needed for Android Auto: it only shows Car Dash when installed from Google Play. The app stays
+private (internal testing, only your own Google account). Privacy policy: `PRIVACY.md`
+(link: `https://github.com/Arka01/car-dash-android/blob/main/PRIVACY.md`).
+
+**Each new version:** Play Console → Car Dash → **Test and release → Testing → Internal testing**
+→ **Create new release** → upload `car-dash-N.aab` from the GitHub release → **Next** →
+**Save and publish**. The phone updates from the Play Store.
+
+The Play version is signed by Google, so it can't install over an APK from GitHub (and the
+other way round): uninstall first, which deletes the app's data (share drives first).
 
 ---
 
