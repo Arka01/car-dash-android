@@ -275,11 +275,19 @@ other way round): uninstall first, which deletes the app's data (share drives fi
 
 ## Android Auto
 
-Android Auto's **Unknown sources** setting does **not** apply to apps built with Google's
-Car App Library (Google: developer.android.com/training/cars/testing), which Car Dash is. So
-the car screen hides Car Dash when it is installed from GitHub. To test in a real car it must
-come from **Google Play** (internal app sharing or an internal test track, no review needed),
-which needs a Play developer account. Until then, only the phone screen is usable.
+Car Dash shows on the car screen only when installed from **Google Play** (internal testing, see
+"Google Play"); Android Auto hides apps of this kind installed from GitHub (works since build 8,
+29 Oct 2026). The car screen uses Google's list layout (Android Auto draws it in its own style);
+the Tiago's screen shows about 3 rows, the rest scrolls.
+
+- **Connect / Stop** in the car starts and stops reading. It needs two one-time steps on the phone:
+  allow **Nearby devices**, and choose the adapter (**[≡] → DEV → [ADAPTER]**). After that the phone
+  app needn't be opened.
+- Rows: Status, then 3 values each (RPM · speed · coolant, oil · battery · fuel, …). Tap a row
+  (`›`) for a page with just those values; Back returns.
+- Build 9 tests what Android Auto allows: green Status text, values in the phone's terminal
+  green (`#33FF66`), coolant / oil / battery in amber or red when they warn, the app icon in the
+  Status row. Whatever the car shows instead tells us the limits.
 
 ---
 
