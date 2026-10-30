@@ -278,16 +278,20 @@ other way round): uninstall first, which deletes the app's data (share drives fi
 Car Dash shows on the car screen only when installed from **Google Play** (internal testing, see
 "Google Play"); Android Auto hides apps of this kind installed from GitHub (works since build 8,
 29 Oct 2026). The car screen uses Google's list layout (Android Auto draws it in its own style);
-the Tiago's screen shows about 3 rows, the rest scrolls.
+the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid of tiles.
 
-- **Connect / Stop** in the car starts and stops reading. It needs two one-time steps on the phone:
-  allow **Nearby devices**, and choose the adapter (**[≡] → DEV → [ADAPTER]**). After that the phone
-  app needn't be opened.
-- Rows: Status, then 3 values each (RPM · speed · coolant, oil · battery · fuel, …). Tap a row
-  (`›`) for a page with just those values; Back returns.
-- Build 9 tests what Android Auto allows: green Status text, values in the phone's terminal
-  green (`#33FF66`), coolant / oil / battery in amber or red when they warn, the app icon in the
-  Status row. Whatever the car shows instead tells us the limits.
+- **No buttons, nothing tappable** (the Tiago's touch screen makes random ghost taps). Reading
+  starts by itself when Car Dash opens in the car, and stops when the phone is unplugged, but only
+  if the car started it (a LIVE run started on the phone keeps going).
+- It needs two one-time steps on the phone: allow **Nearby devices**, and choose the adapter
+  (**[≡] → DEV → [ADAPTER]**). Until then the Status tile says `Set up on phone`.
+- **Grid of tiles** (since build 10), one value each, scrolls: Status, RPM, Coolant, Oil, Intake air,
+  Catalyst, Manifold, Baro, Battery, Speed, Gear, Load, Throttle, Pedal, Fuel rate, Torque, Power,
+  Timing, Fuel trim, Fuel left, Range. Android Auto decides the columns and the most tiles allowed
+  (cut from the bottom). Values in the phone's terminal green, amber / red when they warn, `--`
+  when missing or older than 10 s.
+- Refresh: asked for 4 times a second; Android Auto decides how many it shows (about 1–2 per second
+  for this kind of screen).
 
 ---
 
@@ -331,7 +335,7 @@ the Tiago's screen shows about 3 rows, the rest scrolls.
 | `app/src/main/java/.../obd/Adapters.kt` | Remembers which paired Bluetooth device is the adapter |
 | `app/src/main/java/.../Report.kt` | The plain text sent by **[SHARE]** |
 | `app/src/main/java/.../MainActivity.kt` | Starts the phone screen; Bluetooth permission, adapter choice, sharing, dialogs (car, NEW CAR, REFUEL, GEARS, REPLAY) |
-| `app/src/main/java/.../car/` | Android Auto: service, the list screen, Connect/Stop |
+| `app/src/main/java/.../car/` | Android Auto: service, the grid screen (`DashGridScreen.kt`), auto-start (`CarControls.kt`); tile icons in `res/drawable/ic_tile_*.xml` |
 | `app/src/main/AndroidManifest.xml` | Tells Android what the app is and what it may use (Bluetooth, Android Auto) |
 | `app/build.gradle.kts` | App id, Android versions, libraries, signing |
 | `.github/workflows/build.yml` | The GitHub Actions build that makes the APK and the release |

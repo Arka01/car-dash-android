@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Car screen tile icon: fuel pump (green line on transparent) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#33FF66" android:strokeWidth="2" android:strokeLineCap="round"
+        android:strokeLineJoin="round" android:fillColor="#00000000"
+        android:pathData="M4,20v-14a2,2 0 0,1 2,-2h6a2,2 0 0,1 2,2v14M3,20h12M6,9h6M14,10h2a2,2 0 0,1 2,2v4a1.5,1.5 0 0,0 3,0v-7l-3,-3" />
+</vector>
