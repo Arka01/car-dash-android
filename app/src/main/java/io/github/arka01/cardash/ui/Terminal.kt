@@ -324,7 +324,7 @@ private fun Header(s: Snapshot, now: Long, cols: Int, tab: Tab, openMenu: () -> 
     }
     val stateColor = when (s.carState) {
         CarState.ENGINE_ON -> GREEN
-        CarState.STARTING, CarState.IGNITION_ON -> AMBER
+        CarState.STARTING, CarState.STOPPING, CarState.IGNITION_ON -> AMBER
         CarState.IGNITION_OFF, CarState.UNKNOWN -> DIM
     }
     val details = buildList {

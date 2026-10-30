@@ -71,6 +71,7 @@ class DriveRecorder(dir: File, private val carKey: String) {
     fun saveProfile(
         adapter: String?,
         protocol: String,
+        vin: String?,
         troubleCodes: String,
         modules: Map<String, List<Int>>,
         fastRead: String,
@@ -83,6 +84,7 @@ class DriveRecorder(dir: File, private val carKey: String) {
         json.put("app", "Car Dash ${BuildConfig.VERSION_NAME}")
         json.put("adapter", adapter ?: "")
         json.put("protocol", protocol)
+        json.put("vin", vin ?: JSONObject.NULL)   // null: the car doesn't share it
         json.put("trouble_codes", troubleCodes)
         val mods = JSONObject()
         for ((header, pids) in modules) mods.put(header, JSONArray(pids.map { "%02X".format(it) }))

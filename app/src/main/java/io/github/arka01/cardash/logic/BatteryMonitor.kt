@@ -49,6 +49,7 @@ class BatteryMonitor(private val stateFile: File?, private val smart: Boolean) {
     private var running: Boolean? = null
     private var offSince: Double? = null
     private var problemSince: Double? = null
+    private var overSince: Double? = null
     private var disagreeSince: Double? = null
     private var now = 0.0
     private var lastReading: Double? = null
@@ -105,6 +106,8 @@ class BatteryMonitor(private val stateFile: File?, private val smart: Boolean) {
         val v = volts
         val chargingLow = running == true && v != null && v < CHARGING_MIN
         problemSince = if (chargingLow) problemSince ?: now else null
+        val over = running == true && v != null && v > OVERCHARGE_WARNING
+        overSince = if (over) overSince ?: now else null
         val p = port
         val e = ecu
         val apart = p != null && e != null && kotlin.math.abs(p - e) > SOURCES_DISAGREE
@@ -135,8 +138,15 @@ class BatteryMonitor(private val stateFile: File?, private val smart: Boolean) {
 
     private fun judge(volts: Double): Triple<String, Level, String> {
         if (running == true) {
-            if (volts > OVERCHARGE_CRITICAL) return Triple("OVERCHARGING", Level.ALARM, "voltage regulator fault: can damage the battery")
-            if (volts > OVERCHARGE_WARNING) return Triple("OVERCHARGING", Level.WARN, "higher than normal charging voltage")
+            // Must last OVERCHARGE_AFTER: a smart alternator briefly reaches ~15.1 V while braking
+            // (Tiago 2026-10-29, ~1 s at 15:38:26). Unlike the Python dashboard, which reacts at once.
+            val overFor = overSince?.let { now - it } ?: 0.0
+            if (overFor >= OVERCHARGE_AFTER && volts > OVERCHARGE_CRITICAL) {
+                return Triple("OVERCHARGING", Level.ALARM, "voltage regulator fault: can damage the battery")
+            }
+            if (overFor >= OVERCHARGE_AFTER && volts > OVERCHARGE_WARNING) {
+                return Triple("OVERCHARGING", Level.WARN, "higher than normal charging voltage")
+            }
             if (smart) return smartState()
             val lasted = problemSince?.let { now - it } ?: 0.0
             if (volts < NOT_CHARGING && lasted >= CRITICAL_AFTER) {
@@ -236,6 +246,7 @@ class BatteryMonitor(private val stateFile: File?, private val smart: Boolean) {
         const val NOT_CHARGING = 12.6   // ...and below this the alternator isn't charging at all
         const val OVERCHARGE_WARNING = 15.0
         const val OVERCHARGE_CRITICAL = 15.5
+        const val OVERCHARGE_AFTER = 5.0   // seconds above 15 V before it counts
         const val WARNING_AFTER = 10.0  // seconds a charging problem must last (ignores brief dips)
         const val CRITICAL_AFTER = 30.0
         // Smart alternator: judged by the highest voltage in the last SMART_WINDOW seconds of running. Healthy,

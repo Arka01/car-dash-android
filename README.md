@@ -99,7 +99,8 @@ RPM/speed refresh, and `fast` or `slow` reading.
 | Shows | Means | How the app knows (KEY TEST, 26 Oct 2026) |
 |---|---|---|
 | `ENGINE ON` (green) | Engine running | RPM 500 or more |
-| `STARTING` (amber) | Cranking | RPM above 0 but below 500 |
+| `STARTING` (amber) | Cranking | RPM above 0 but below 500, coming from standstill |
+| `STOPPING` (amber) | Engine switched off, spinning down | RPM below 500 after the engine ran |
 | `IGNITION ON` (amber) | Key at ON, engine off | RPM 0 and the AMT computer answers |
 | `IGNITION OFF` (dim) | Key at LOCK or ACC | AMT and the car's network silent |
 
@@ -208,6 +209,8 @@ run starts from the float sensor; the estimate improves after fill-ups to full.
 **Battery:** while running: CHARGING / LOW CHARGE / NOT CHARGING / OVERCHARGING. The Tiago has a
 smart alternator (voltage drops to ~12.2 V while accelerating, by design), so it's judged by the
 highest voltage in the last 5 minutes (below 13.2 V = LOW CHARGE, below 12.8 V = NOT CHARGING).
+OVERCHARGING only counts after 5 s above 15.0 V (red above 15.5 V): the smart alternator briefly
+reaches ~15.1 V while braking, which is normal.
 Engine off: SETTLING (20 min), then RESTING with the estimated charge. At each start the lowest
 voltage is kept (`battery_state.json`): 10.0 V or more is good, below 9.6 V weak. While the
 engine is off the app reads only RPM and voltage, several times a second, to catch that dip.
@@ -225,7 +228,7 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 | File | Contents |
 |---|---|
 | `drive_<date>_<time>.csv` | One row per reading round (several per second): `t` (seconds), `time`, then every value. Same column names as the Python dashboard's recordings (incl. the calculated `Torque` and `Power`), so its analysis and `--replay` work on them. Extra columns at the end: `Car state`, `Gear (estimated)`, `O2 S1 lambda`, `Torque demanded %`, `Coolant (sensors)`, `Manifold pressure fine`, `Exhaust flow (?)`, then `PID xx` for anything else the car reports |
-| `drive_<date>_<time>_profile.json` | Car, protocol, trouble codes, which values the car supports, the fast-read result, one reading of everything |
+| `drive_<date>_<time>_profile.json` | Car, protocol, VIN (`null` if the car doesn't share it), trouble codes, which values the car supports, the fast-read result, one reading of everything |
 
 - A reconnect during the drive continues the same file. A run that never connected leaves no file.
 - Files are kept per car in `files/cars/<car>/recordings/` (drives from builds 5-6 were moved
@@ -264,9 +267,17 @@ Needed for Android Auto: it only shows Car Dash when installed from Google Play.
 private (internal testing, only your own Google account). Privacy policy: `PRIVACY.md`
 (link: `https://github.com/Arka01/car-dash-android/blob/main/PRIVACY.md`).
 
-**Each new version:** Play Console → Car Dash → **Test and release → Testing → Internal testing**
-→ **Create new release** → upload `car-dash-N.aab` from the GitHub release → **Next** →
-**Save and publish**. The phone updates from the Play Store.
+**Each new version (automatic since build 11):** every push to `main` builds the app and the
+GitHub Actions step **Upload to Google Play** puts `car-dash-N.aab` on internal testing by itself.
+On the phone: Play Store → **Update** (or open
+`https://play.google.com/store/apps/details?id=io.github.arka01.cardash`); a new version can take
+10–15 minutes to show up.
+
+The upload uses a Google Cloud **service account** (`github-play-upload@radiant-entry-245409.iam.gserviceaccount.com`,
+project "My First Project") whose key is the GitHub secret `PLAY_SERVICE_ACCOUNT_JSON`. In Play Console it
+may only *view app information* and *release to testing tracks*, so it can't publish publicly.
+If the upload step fails, the build is still on the GitHub Releases page: upload the `.aab` by hand
+(Play Console → Car Dash → **Test and release → Testing → Internal testing → Create new release**).
 
 The Play version is signed by Google, so it can't install over an APK from GitHub (and the
 other way round): uninstall first, which deletes the app's data (share drives first).

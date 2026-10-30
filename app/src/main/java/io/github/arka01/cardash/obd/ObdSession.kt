@@ -209,7 +209,7 @@ object ObdSession {
             // 2. Groups by how often they're read; self-test the batches.
             val groups = buildGroups(pids)
             selfTest(groups, singleMs)
-            Dash.run?.recorder?.saveProfile(device.name, protocolName, codes, modules, Dash.state.value.fastRead, readings)
+            Dash.run?.recorder?.saveProfile(device.name, protocolName, vin, codes, modules, Dash.state.value.fastRead, readings)
 
             // 3. The reading loop.
             var state = CarState.UNKNOWN
@@ -240,9 +240,12 @@ object ObdSession {
                     silentRounds >= 2 -> CarState.IGNITION_OFF
                     rpm == null -> state
                     rpm >= 500 -> CarState.ENGINE_ON
-                    rpm > 0 -> CarState.STARTING
+                    // Below 500 rpm: spinning down if the engine was running (drive 2026-10-30
+                    // showed STARTING while it stopped), else cranking.
+                    rpm > 0 -> if (state == CarState.ENGINE_ON || state == CarState.STOPPING) CarState.STOPPING else CarState.STARTING
                     // RPM 0: ignition on, or the engine computer's ~30 s after key-off; the AMT tells.
-                    state == CarState.ENGINE_ON || state == CarState.STARTING || state == CarState.UNKNOWN ||
+                    state == CarState.ENGINE_ON || state == CarState.STARTING || state == CarState.STOPPING ||
+                        state == CarState.UNKNOWN ||
                         round % 10 == 1 -> ignitionCheck()
                     else -> state
                 }

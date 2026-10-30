@@ -1,6 +1,6 @@
-# Builds the APK and the app bundle (.aab) on every push to main and publishes both as a
-# GitHub Release: the APK for installing straight from the Releases page, the .aab for
-# uploading to Google Play (internal testing).
+# Builds the APK and the app bundle (.aab) on every push to main, publishes both as a
+# GitHub Release (the APK can be installed straight from the Releases page), and uploads the
+# .aab to Google Play's internal testing track, so the phone gets the update from the Play Store.
 name: Build APK
 
 on:
@@ -55,3 +55,15 @@ jobs:
           files: |
             car-dash-${{ github.run_number }}.apk
             car-dash-${{ github.run_number }}.aab
+
+      # Needs the secret PLAY_SERVICE_ACCOUNT_JSON: the key of a Google Cloud service account that
+      # may only release Car Dash to testing tracks (see README, "Google Play").
+      - name: Upload to Google Play (internal testing)
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: io.github.arka01.cardash
+          releaseFiles: car-dash-${{ github.run_number }}.aab
+          releaseName: ${{ github.run_number }} (0.1.${{ github.run_number }})
+          track: internal
+          status: completed
