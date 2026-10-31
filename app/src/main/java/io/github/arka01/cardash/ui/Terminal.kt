@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
@@ -55,6 +57,8 @@ import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.CarState
 import io.github.arka01.cardash.CrashReport
 import io.github.arka01.cardash.Dash
+import io.github.arka01.cardash.DriveItem
+import io.github.arka01.cardash.DriveReports
 import io.github.arka01.cardash.KeyMarks
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
@@ -63,6 +67,7 @@ import io.github.arka01.cardash.ai.LocalLlm
 import io.github.arka01.cardash.logic.Calculations
 import io.github.arka01.cardash.logic.Level
 import io.github.arka01.cardash.logic.Rules
+import io.github.arka01.cardash.logic.Verdict
 import io.github.arka01.cardash.logic.Values
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -105,7 +110,7 @@ private class Cell(val width: Float, val height: Float)
 
 private val LocalCell = staticCompositionLocalOf { Cell(10f, 12f) }
 
-private enum class Tab { DASH, INFO, ALL, AI, DEV }
+private enum class Tab { DASH, INFO, DRIVES, ALL, AI, DEV }
 
 /** What the screen can ask the activity to do. */
 class Actions(
@@ -200,6 +205,7 @@ fun TerminalApp(adapterName: String?, voiceOn: Boolean, aiSettings: AiSettings, 
                                 }
                             }
                             Tab.INFO -> InfoView(snap, now)
+                            Tab.DRIVES -> DrivesView(snap)
                             Tab.ALL -> AllValues(snap, now, perRow = if (landscape) 2 else 1)
                             Tab.AI -> AiView(aiSettings, actions)
                             Tab.DEV -> DevView(snap, adapterName, voiceOn, actions)
@@ -278,7 +284,7 @@ private fun AnnotatedString.Builder.cell(label: String, value: String, color: Co
 private fun Rule(cols: Int) = Line { put("─".repeat(cols), DIM) }
 
 @Composable
-private fun Section(title: String) = Line { put("─ $title ", DIM); put("─".repeat(PANE - title.length - 3), DIM) }
+private fun Section(title: String) = Line { put("─ $title ", DIM); put("─".repeat((PANE - title.length - 3).coerceAtLeast(0)), DIM) }
 
 private fun Level.color() = when (this) {
     Level.OK -> GREEN
@@ -857,5 +863,92 @@ private fun SettingLine(label: String, value: String, key: String, actions: Acti
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Line { put(label, DIM) }
         Key(value, false, GREEN) { actions.aiSetting(key) }
+    }
+}
+
+// ---------------------------------------------------------------- DRIVES tab
+
+private fun Verdict.color() = when (this) {
+    Verdict.OK -> GREEN
+    Verdict.WATCH -> AMBER
+    Verdict.CHECK -> RED
+    Verdict.INFO -> GREEN
+}
+
+private val driveDate = SimpleDateFormat("d MMM HH:mm", Locale.UK)
+
+/**
+ * The chosen car's drives, newest first, each with its worst verdict; tap one for its report
+ * (logic/DriveReport: drive, fuel, warm-up, battery, engine, data, with OK / WATCH / CHECK).
+ */
+@Composable
+private fun DrivesView(s: Snapshot) {
+    val context = LocalContext.current
+    val drives by DriveReports.items.collectAsState()
+    var open by rememberSaveable { mutableStateOf<String?>(null) }   // the drive shown, by file name
+    LaunchedEffect(s.car?.key) { DriveReports.refresh(context) }
+    BackHandler(enabled = open != null) { open = null }
+
+    val shown = drives.firstOrNull { it.csv.name == open }
+    if (shown != null) {
+        DriveDetail(shown) { open = null }
+        return
+    }
+    LazyColumn {
+        item { Section("DRIVES · ${s.car?.shortName ?: ""}") }
+        if (drives.isEmpty()) item { Line(wrap = true) { put("No drives recorded for this car yet.", DIM) } }
+        items(drives) { item ->
+            val r = item.report
+            Row(Modifier.fillMaxWidth().clickable(enabled = r != null) { open = item.csv.name }.padding(vertical = 6.dp)) {
+                Line(wrap = true) {
+                    if (r == null) {
+                        put(item.csv.name.removePrefix("drive_").removeSuffix(".csv"), DIM)
+                        put(if (item.failed) "  too short" else "  calculating…", DIM)
+                    } else {
+                        put(driveDate.format(r.start), GREEN)
+                        put(String.format(Locale.US, " %3.0f min %5.1f km ", r.minutes, r.km), DIM)
+                        val watch = r.verdicts.count { it.verdict == Verdict.WATCH }
+                        val check = r.verdicts.count { it.verdict == Verdict.CHECK }
+                        when {
+                            check > 0 -> put("■ $check CHECK", RED)
+                            watch > 0 -> put("▲ $watch WATCH", AMBER)
+                            else -> put("✓ OK", GREEN)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DriveDetail(item: DriveItem, back: () -> Unit) {
+    val r = item.report ?: return
+    LazyColumn {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Key("BACK", false, GREEN, back)
+                Line { put(driveDate.format(r.start), GREEN) }
+            }
+        }
+        item { Line { put(String.format(Locale.US, "%.0f min · %.1f km", r.minutes, r.km), DIM) } }
+        item { Section("VERDICT") }
+        items(r.verdicts) { v ->
+            Line(wrap = true) {
+                put(when (v.verdict) { Verdict.CHECK -> "CHECK "; Verdict.WATCH -> "WATCH "; else -> "OK    " }, v.verdict.color())
+                put(v.label, v.verdict.color())
+                if (v.value.isNotEmpty()) put(" ${v.value}", DIM)
+            }
+        }
+        for (section in r.sections) {
+            item { Section(section.title) }
+            items(section.lines) { line ->
+                Line(wrap = true) {
+                    put("${line.label} ", DIM)
+                    put(line.value, line.verdict.color())
+                    if (line.verdict == Verdict.WATCH || line.verdict == Verdict.CHECK) put(" ${line.verdict}", line.verdict.color())
+                }
+            }
+        }
     }
 }

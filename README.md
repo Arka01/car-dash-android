@@ -84,6 +84,7 @@ LIVE / STOP; tap an entry, or tap the dimmed screen or press Back to close it.
 |---|---|
 | **[DASH]** | Big speed and gear, RPM and its bar, pedal and throttle bars, temperatures, warnings, then ENGINE / FUEL / AIR / CAR details |
 | **[INFO]** | Everything calculated: car, VIN, trouble codes, engine state, torque/power, fuel left and range, battery, trip (see "INFO tab") |
+| **DRIVES** | Every recorded drive of the chosen car with its **drive report** (see "Drive reports") |
 | **[ALL]** | Every value the engine computer reports (about 50), by PID number |
 | **AI** | The on-phone language model: import the model file, its settings, ask questions (see "On-phone AI") |
 | **DEV** | Car tools (**[CAR] [NEW CAR] [PROBE] [GEARS] [REFUEL] [VOICE]**), **[DEMO] [REPLAY]**, **[ADAPTER]**, the **KEY TEST**, recording, **[SHARE LOG]** and the log |
@@ -161,6 +162,27 @@ on DASH must be visible without scrolling.
 
 The AMT computer (7E9) is listed in the log but not read: it refuses direct requests, and its
 9 values only repeat the engine's (no gear).
+
+---
+
+## Drive reports
+
+After every LIVE drive the app works out a report from the recording (no AI; the checks done by
+hand on the Tiago's drives, 24–30 Oct 2026) and saves it next to the drive as
+`drive_<date>_<time>_report.json`. **[≡] → DRIVES** lists the chosen car's drives, newest first, with
+their worst verdict (`✓ OK`, `▲ WATCH`, `■ CHECK`); tap one for its report, **[BACK]** or Back returns.
+Older recordings get a report the first time DRIVES is opened. Recordings with fewer than 10 rows
+show `too short`.
+
+| Part | Contents | Verdicts |
+|---|---|---|
+| VERDICT | All WATCH / CHECK findings first, then key OKs | |
+| DRIVE | Distance, average and top speed, idling %, max rpm, time over the redline | over redline: 0 s OK, ≤5 s WATCH, more CHECK |
+| FUEL | Litres used, L/100 km, vs this car's average | more than 15 % above the average of earlier drives (≥2 km, needs 3) = WATCH |
+| WARM-UP (cold start only, coolant < 70 °C) | Start coolant, time to coolant 70 / 80 °C and oil 85 °C, max rpm while cold | above 2500 rpm while cold: 0 s OK, ≤10 s WATCH, more CHECK |
+| BATTERY | Resting voltage before the start (charge %), start dip (+ readings), charging, time below 12 V, highest, at end | resting ≥75 % OK, ≥25 % WATCH; dip ≥10.0 V OK, ≥9.6 V WATCH (needs 5 readings in 2 s); smart alternator: lowest 5-min peak ≥13.2 V OK, ≥12.8 V WATCH; below 12 V while running (30 s after a start): <30 s OK, <5 min WATCH; above 15.0 V for 5 s WATCH, 15.5 V CHECK |
+| ENGINE | Peak torque / power, coolant and oil max, intake range, long fuel trim, catalyst, trouble codes | coolant >105 / oil >120 °C WATCH (CHECK >115 / >135); trim ±10 % WATCH, ±20 % CHECK; catalyst >900 °C CHECK; any trouble code CHECK |
+| DATA | Rows and rows per second, gaps over 2 s | a gap = WATCH |
 
 ---
 
@@ -370,6 +392,8 @@ the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid o
 | `app/src/main/java/.../cars/` + `assets/cars/` | Car settings (`car.json`, same format as the Python project), per-car folders, VIN, NEW CAR names |
 | `app/src/main/java/.../logic/` | The Python dashboard's calculations: `Pipeline` (runs them all each round), `Rules` (warning levels), `Calculations` (gear, torque/power, heat soak, boost, hot state), `TripComputer`, `PedalCheck`, `Trends`, `BatteryMonitor`, `FuelTracker`, `WarmUpAdvisor`, `GearCalibration` |
 | `app/src/main/java/.../Speech.kt` | Says the warm-up messages (phone voice) |
+| `app/src/main/java/.../logic/DriveReport.kt` + `DriveReports.kt` | Drive report calculation; storing and calculating reports in the background |
+| `app/src/main/java/.../CrashReport.kt` | Why the app last closed (Android's exit record, Java stack traces, the AI's last step) |
 | `app/src/main/java/.../ai/LocalLlm.kt` | On-phone language model: import, settings, load / unload, streaming answers (LiteRT-LM 0.16.1) |
 | `app/src/main/java/.../DriveRecorder.kt` | Records every LIVE run to CSV + profile JSON (Python dashboard format) |
 | `app/src/main/java/.../demo/DemoPlayer.kt` + `assets/demo_drive.csv` | DEMO (a Tiago drive) and REPLAY (the app's own recordings) |

@@ -106,6 +106,8 @@ object Dash {
         fun close() {
             recorder?.close()
             pipeline.close()
+            // The drive report (DRIVES screen), worked out in the background.
+            recorder?.takeIf { it.rows > 0 }?.let { DriveReports.driveEnded(context, car, it.csv) }
         }
     }
 
