@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.CarState
+import io.github.arka01.cardash.CrashReport
 import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.KeyMarks
 import io.github.arka01.cardash.Mode
@@ -130,6 +131,8 @@ class Actions(
     val aiTest: () -> Unit,    // the 30 Oct drive test question
     val aiStop: () -> Unit,
     val aiSetting: (String) -> Unit,   // edit one setting: system, temperature, topK, topP, maxTokens, backend
+    val shareCrash: () -> Unit,
+    val clearCrash: () -> Unit,
 )
 
 @Composable
@@ -790,8 +793,21 @@ private fun InfoView(s: Snapshot, now: Long) {
 @Composable
 private fun AiView(settings: AiSettings, actions: Actions) {
     val ai by LocalLlm.state.collectAsState()
+    val crash by CrashReport.report.collectAsState()
     val hasModel = ai.modelName != null
     LazyColumn {
+        crash?.let { report ->
+            // Why the app closed last time (build 13: the AI crashed on GPU and CPU).
+            item { Section("LAST CRASH") }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Key("SHARE CRASH", false, RED, actions.shareCrash)
+                    Key("CLEAR", false, DIM, actions.clearCrash)
+                }
+            }
+            items(report.lines().take(14)) { line -> Line(wrap = true) { put(line, AMBER) } }
+            item { Line { put("(full report: SHARE CRASH)", DIM) } }
+        }
         item { Section("MODEL") }
         item {
             Line(wrap = true) {

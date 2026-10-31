@@ -11,6 +11,7 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
+import io.github.arka01.cardash.CrashReport
 import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.Mode
 import kotlinx.coroutines.CancellationException
@@ -228,12 +229,15 @@ object LocalLlm {
         if (Dash.state.value.mode == Mode.LIVE) return "Not while LIVE: stop reading first"
         val s = settings(app)
         store.update { it.copy(busy = true, question = question, answer = "", stats = "") }
+        CrashReport.step(String.format(Locale.US, "ask: %s, model %s (%.2f GB), temp %.2f, topK %d, topP %.2f, max %d, question %d chars",
+            if (s.gpu) "GPU" else "CPU", model.name, model.length() / 1e9, s.temperature, s.topK, s.topP, s.maxTokens, question.length), first = true)
         job = scope.launch {
             val started = System.currentTimeMillis()
             try {
                 lock.withLock {
                     val e = load(app, model, s.gpu)
                     status("thinking…")
+                    CrashReport.step("conversation: creating")
                     val c = e.createConversation(
                         ConversationConfig(
                             systemInstruction = Contents.of(s.systemPrompt),
@@ -242,12 +246,16 @@ object LocalLlm {
                         ),
                     )
                     conversation = c
+                    CrashReport.step("conversation: created; sending the question")
                     val answer = StringBuilder()
                     var firstAt = 0L
                     try {
                         currentCoroutineContext().ensureActive()   // STOP pressed while loading
                         c.sendMessageAsync(question).collect { message ->
-                            if (firstAt == 0L) firstAt = System.currentTimeMillis()
+                            if (firstAt == 0L) {
+                                firstAt = System.currentTimeMillis()
+                                CrashReport.step("first words")
+                            }
                             answer.append(message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text })
                             val text = answer.toString()
                             store.update { it.copy(answer = text, status = "answering…") }
@@ -263,6 +271,7 @@ object LocalLlm {
                     val wait = if (firstAt > 0) (firstAt - started) / 1000.0 else total
                     val words = answer.split(Regex("\\s+")).count { it.isNotBlank() }
                     status("done")
+                    CrashReport.step("done: ${answer.length} characters")
                     store.update {
                         it.copy(stats = String.format(Locale.US, "%.1f s (first words after %.1f s) · %d words · %s",
                             total, wait, words, if (engineGpu == true) "GPU" else "CPU"))
@@ -272,6 +281,7 @@ object LocalLlm {
                 status("stopped")
                 throw e
             } catch (e: Throwable) {
+                CrashReport.step("failed: ${e.javaClass.name}: ${e.message}")
                 val tooLong = (e.message ?: "").contains("token", ignoreCase = true)
                 status("failed: ${e.message ?: e.javaClass.simpleName}" +
                     if (tooLong) " (question + answer too long? lower 'max answer')" else "")
@@ -302,10 +312,11 @@ object LocalLlm {
     /** The engine for [model]; loads it (GPU, else CPU) unless it's loaded for this setting already. */
     private fun load(context: Context, model: File, gpu: Boolean): Engine {
         unloadJob?.cancel()
-        engine?.let { if (engineWanted == gpu) return it }
+        engine?.let { if (engineWanted == gpu) return it.also { CrashReport.step("engine: already loaded") } }
         unload()
         status("loading model (${if (gpu) "GPU" else "CPU"}, ~10 s)…")
         fun open(useGpu: Boolean): Engine {
+            CrashReport.step("engine: creating (${if (useGpu) "GPU" else "CPU"}, context $CONTEXT_TOKENS tokens, cache ${context.cacheDir.path})")
             val e = Engine(
                 EngineConfig(
                     modelPath = model.path,
@@ -315,8 +326,11 @@ object LocalLlm {
                 ),
             )
             try {
+                CrashReport.step("engine: initialize() …")
                 e.initialize()
+                CrashReport.step("engine: initialized")
             } catch (t: Throwable) {
+                CrashReport.step("engine: initialize failed: ${t.javaClass.name}: ${t.message}")
                 runCatching { e.close() }   // free what the failed start took before trying again
                 throw t
             }

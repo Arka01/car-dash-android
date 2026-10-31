@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
         Cars.init(this)
         Speech.init(this)
         voiceOn = !Speech.muted(this)
+        CrashReport.init(this)   // first: catches crashes, and reads why the app closed last time
         LocalLlm.init(this)
         aiSettings = LocalLlm.settings(this)
         if (Dash.state.value.car == null) Dash.chooseCar(this, Cars.active(this).key)
@@ -84,6 +85,8 @@ class MainActivity : ComponentActivity() {
             aiTest = { LocalLlm.ask(this, LocalLlm.TEST_QUESTION)?.let { toast(it) } },
             aiStop = { LocalLlm.stop() },
             aiSetting = ::editAiSetting,
+            shareCrash = ::shareCrash,
+            clearCrash = { CrashReport.clear(this) },
         )
         setContent {
             val snap by Dash.state.collectAsState()
@@ -304,6 +307,17 @@ class MainActivity : ComponentActivity() {
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
     // ---------------------------------------------------------------- AI
+
+    /** Sends the crash report as text (e.g. by email or WhatsApp). */
+    private fun shareCrash() {
+        val text = CrashReport.report.value ?: return
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Car Dash ${BuildConfig.VERSION_NAME} crash report")
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startActivity(Intent.createChooser(send, "Share crash report"))
+    }
 
     private fun removeModel() {
         AlertDialog.Builder(this)

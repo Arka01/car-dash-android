@@ -189,6 +189,11 @@ The model is loaded when needed (~10 s the first time, ~2–3 GB of memory) and 
 | runs on | GPU (usually faster) or CPU; falls back to CPU if the GPU fails | GPU |
 | system prompt | Fixed instructions given before every question | "experienced car mechanic…" |
 
+**If the app closes by itself** (crash): reopen Car Dash and go to **[≡] → AI**. A **LAST CRASH** box
+shows why Android closed it (native crash, out of memory, …), the last AI step reached and the
+phone's memory; **[SHARE CRASH]** sends the full report as text, **[CLEAR]** hides it. Reports are
+also kept in the app (`files/dev/crash_<date>_<time>.txt`). Android 11+ needed for the native details.
+
 ---
 
 ## Cars
