@@ -72,23 +72,23 @@ import kotlin.math.roundToInt
  * with a subtle green glow. Dash and Drives first; the other screens keep the terminal look for now.
  */
 
-private val BG = Color.Black
-private val CARD = Color(0xFF0A130C)          // just lighter than black, so cards stand out
-private val CARD_BORDER = Color(0x5533FF66)   // terminal green, faint
-private val NEON = Color(0xFF33FF66)          // the terminal green
-private val MUTED = Color(0xFF8CC79D)         // labels
-private val FAINT = Color(0xFF4C7A58)         // less important text, old values
-private val WARN = Color(0xFFFFB000)
-private val ALARM = Color(0xFFFF4D4D)
-private const val STALE_MS = 10_000
+internal val BG = Color.Black
+internal val CARD = Color(0xFF0A130C)          // just lighter than black, so cards stand out
+internal val CARD_BORDER = Color(0x5533FF66)   // terminal green, faint
+internal val NEON = Color(0xFF33FF66)          // the terminal green
+internal val MUTED = Color(0xFF8CC79D)         // labels
+internal val FAINT = Color(0xFF4C7A58)         // less important text, old values
+internal val WARN = Color(0xFFFFB000)
+internal val ALARM = Color(0xFFFF4D4D)
+internal const val STALE_MS = 10_000
 
-private fun Level.tone() = when (this) {
+internal fun Level.tone() = when (this) {
     Level.OK -> NEON
     Level.WARN -> WARN
     Level.ALARM -> ALARM
 }
 
-private fun Verdict.tone() = when (this) {
+internal fun Verdict.tone() = when (this) {
     Verdict.OK, Verdict.INFO -> NEON
     Verdict.WATCH -> WARN
     Verdict.CHECK -> ALARM
@@ -98,7 +98,7 @@ private fun Verdict.tone() = when (this) {
 
 /** Text: sans-serif labels, or monospace numbers ([mono]), optionally with the green [glow]. */
 @Composable
-private fun Txt(
+internal fun Txt(
     text: String,
     size: TextUnit,
     color: Color = MUTED,
@@ -125,7 +125,7 @@ private fun Txt(
 
 /** A card: rounded, slightly lighter than the background, thin green (or warning-coloured) border. */
 @Composable
-private fun Card(
+internal fun Card(
     modifier: Modifier = Modifier,
     border: Color = CARD_BORDER,
     fill: Color = CARD,
@@ -138,30 +138,32 @@ private fun Card(
     )
 }
 
-/** A button: green outline, rounded. */
+/** A button: green outline, rounded; [filled] = selected / active. */
 @Composable
-private fun Button(label: String, color: Color = NEON, onClick: () -> Unit) {
+internal fun Button(label: String, color: Color = NEON, modifier: Modifier = Modifier, filled: Boolean = false, onClick: () -> Unit) {
     val shape = RoundedCornerShape(50)
     Row(
-        Modifier.clip(shape).border(1.dp, color, shape).clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 10.dp),
+        modifier.clip(shape).background(if (filled) color.copy(alpha = 0.18f) else Color.Transparent)
+            .border(1.dp, color, shape).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
     ) {
-        Txt(label, 15.sp, color, FontWeight.Medium)
+        Txt(label, 15.sp, color, FontWeight.Medium, maxLines = 1)
     }
 }
 
 /** A small pill with a coloured outline, e.g. "● LIVE" or "▲ 2 watch". */
 @Composable
-private fun Chip(text: String, color: Color) {
+internal fun Chip(text: String, color: Color) {
     val shape = RoundedCornerShape(50)
     Row(Modifier.clip(shape).border(1.dp, color.copy(alpha = 0.7f), shape).padding(horizontal = 10.dp, vertical = 4.dp)) {
         Txt(text, 13.sp, color, FontWeight.Medium)
     }
 }
 
-private fun f(x: Double?, format: String) = x?.let { String.format(Locale.US, format, it) }
+internal fun f(x: Double?, format: String) = x?.let { String.format(Locale.US, format, it) }
 
 /** A reading if it's fresh (newer than [STALE_MS]), else null. */
-private fun Snapshot.fresh(pid: Int, now: Long): Double? {
+internal fun Snapshot.fresh(pid: Int, now: Long): Double? {
     val r = readings[pid] ?: return null
     return r.number?.takeIf { now - r.time < STALE_MS }
 }
@@ -258,7 +260,8 @@ private fun MainCard(s: Snapshot, now: Long) {
                 Txt("km/h", 14.sp)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Txt(Calculations.gearName(gear), 56.sp, if (speed == null) FAINT else NEON, FontWeight.Bold, mono = true, glow = speed != null, maxLines = 1)
+                // "--" without fresh speed and RPM: "~" would mean "between gears".
+                Txt(if (speed == null || rpm == null) "--" else Calculations.gearName(gear), 56.sp, if (speed == null) FAINT else NEON, FontWeight.Bold, mono = true, glow = speed != null, maxLines = 1)
                 Txt("gear", 14.sp)
             }
         }

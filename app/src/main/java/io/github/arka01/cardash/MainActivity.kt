@@ -30,10 +30,10 @@ import io.github.arka01.cardash.logic.GearCalibration
 import io.github.arka01.cardash.obd.Adapters
 import io.github.arka01.cardash.obd.SavedAdapter
 import io.github.arka01.cardash.ui.Actions
-import io.github.arka01.cardash.ui.TerminalApp
+import io.github.arka01.cardash.ui.CarDashApp
 
 /**
- * Phone screen. The look is in ui/Terminal.kt; this class handles Bluetooth permission, adapter,
+ * Phone screen. The look is in ui/ (App.kt, Modern.kt, Screens.kt); this class handles Bluetooth permission, adapter,
  * sharing and the dialogs (car choice, NEW CAR questions, REFUEL, GEARS, REPLAY, AI).
  */
 class MainActivity : ComponentActivity() {
@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
             val snap by Dash.state.collectAsState()
             // A finished NEW CAR scan of a car not set up yet: ask the questions.
             LaunchedEffect(snap.probe) { snap.probe?.let { askNewCar(it) } }
-            TerminalApp(adapterName, voiceOn, aiSettings ?: LocalLlm.settings(this), actions)
+            CarDashApp(adapterName, voiceOn, aiSettings ?: LocalLlm.settings(this), actions)
         }
 
         if (!Adapters.hasPermission(this)) askPermission()

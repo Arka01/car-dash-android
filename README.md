@@ -77,8 +77,9 @@ cat ~/car-dash-signing/SIGNING_PASSWORD.txt; echo
 
 **Look (since build 19):** a modern layout in the terminal colours (green on black, amber / red
 for warnings): cards, readable labels, real buttons, big numbers in monospace with a subtle glow.
-**Dash** and **Drives** have it so far; the other screens still use the terminal look (30 characters
-per line, one column in portrait, two in landscape) until their turn. The top bar shows ☰ (sidebar),
+All screens have it since build 20 (Dash and Drives since 19). Buttons that were `[NAME]` keys are
+now real buttons with the same names (e.g. `[DEMO]` → **Demo**). The sidebar lists **Dash, Info,
+Drives, All sensors, AI, Dev tools**, then **Start LIVE / Stop** and **Update app**. The top bar shows ☰ (sidebar),
 the screen, the mode (● LIVE / ◆ DEMO / ○ OFF) and the time; below it the car state, car and rate.
 
 **Dash:** a main card (speed, gear, RPM and its bar: green, amber from the shift point or near the
@@ -418,8 +419,9 @@ the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid o
 | File | Purpose |
 |---|---|
 | `app/src/main/java/.../Dash.kt` | The hub: live, demo or replay data in, the run's car / calculations / recording, one snapshot out to both screens |
-| `app/src/main/java/.../ui/Modern.kt` | The modern look: top bar, Dash, Drives (cards, glow numbers) |
-| `app/src/main/java/.../ui/Terminal.kt` | The app frame and sidebar; the screens still in the terminal look (INFO, ALL, AI, DEV) |
+| `app/src/main/java/.../ui/App.kt` | The app frame: top bar, the chosen screen, the sidebar; the Actions the screens can trigger |
+| `app/src/main/java/.../ui/Modern.kt` | The modern look's building blocks (cards, glow numbers, buttons), top bar, Dash, Drives |
+| `app/src/main/java/.../ui/Screens.kt` | Info, All sensors, AI and Dev tools in the modern look |
 | `app/src/main/java/.../cars/` + `assets/cars/` | Car settings (`car.json`, same format as the Python project), per-car folders, VIN, NEW CAR names |
 | `app/src/main/java/.../logic/` | The Python dashboard's calculations: `Pipeline` (runs them all each round), `Rules` (warning levels), `Calculations` (gear, torque/power, heat soak, boost, hot state), `TripComputer`, `PedalCheck`, `Trends`, `BatteryMonitor`, `FuelTracker`, `WarmUpAdvisor`, `GearCalibration` |
 | `app/src/main/java/.../Speech.kt` | Says the warm-up messages (phone voice) |

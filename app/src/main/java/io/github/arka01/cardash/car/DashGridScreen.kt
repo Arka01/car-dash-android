@@ -104,8 +104,9 @@ private val TILES = listOf(
     Tile("Gear", R.drawable.ic_tile_gear) { s ->
         val car = s.car
         val speed = s.fresh(0x0D)
-        if (car == null || speed == null) TileValue(null)
-        else TileValue(Calculations.gearName(Calculations.gear(car, speed, s.fresh(0x0C))))
+        val rpm = s.fresh(0x0C)
+        if (car == null || speed == null || rpm == null) TileValue(null)   // "~" would mean "between gears"
+        else TileValue(Calculations.gearName(Calculations.gear(car, speed, rpm)))
     },
     Tile("Load", R.drawable.ic_tile_bar, pid(0x04, "%.0f %%")),
     Tile("Throttle", R.drawable.ic_tile_bar, named("Throttle", "%.0f %%")),
