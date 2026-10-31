@@ -35,8 +35,11 @@ object DriveSummary {
 
     private const val SYSTEM = "You are a car mechanic writing a short after-drive summary for the owner, a " +
         "non-expert. The verdicts in the report (OK, WATCH, CHECK) were decided by the app with this car's own " +
-        "rules: trust them and never judge a number yourself. OK means normal. Explain the WATCH and CHECK items " +
-        "in simple words and say what to do about them. Use the car notes as background. Be brief and calm."
+        "rules: trust them and never judge a number yourself. OK means normal. Only talk about THIS DRIVE: its " +
+        "findings are exactly the WATCH and CHECK lines in its VERDICT, nothing else. Explain them in simple words " +
+        "and say what to do. If there are none, say the drive was normal. The car notes and earlier drives are " +
+        "only background to explain things: never present anything from them as a finding of this drive. " +
+        "Be brief and calm."
 
     fun file(csv: File) = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_summary.txt")
 
@@ -55,9 +58,10 @@ object DriveSummary {
         val app = context.applicationContext
         if (!LocalLlm.hasModel(app)) return "No AI model imported (AI screen)"
         val prompt = buildString {
-            append("CAR NOTES\n").append(notes(car)).append("\n\n")
-            append("EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
-            append("THIS DRIVE\n").append(report.text()).append('\n')
+            // Background first, clearly marked (drive 2026-10-31: a battery note was reported as a finding).
+            append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
+            append("BACKGROUND, NOT FINDINGS: EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
+            append("THIS DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append('\n')
             append("Write exactly two parts:\n")
             append("SPOKEN: 2 to 4 short sentences to read aloud to the driver. Plain words, at most two numbers, no lists, no symbols.\n")
             append("FULL: a short summary of up to 8 lines, with the reasons.")

@@ -66,7 +66,7 @@ class DriveReport(
 
     companion object {
         /** Raise when the calculation changes: older saved reports are then calculated again. */
-        const val VERSION = 1
+        const val VERSION = 2   // 2: gaps only while the engine runs
 
         fun fromJson(j: JSONObject): DriveReport? {
             if (j.optInt("version") != VERSION) return null
@@ -378,10 +378,12 @@ class DriveReport(
             if (engine.isNotEmpty()) sections += ReportSection("ENGINE", engine)
 
             // ---------------------------------------------------- data
-            val gaps = (1 until n).count { secs[it] - secs[it - 1] > GAP_S }
+            // Only while the engine runs: with the ignition off the app writes a row every ~2 s on purpose
+            // (it stops asking the car), which isn't missing data (drive 2026-10-31: 12 false gaps).
+            val gaps = (1 until n).count { secs[it] - secs[it - 1] > GAP_S && (running[it] || running[it - 1]) }
             sections += ReportSection("DATA", listOf(
                 ReportLine("rows", String.format(Locale.US, "%d · %.1f/s", n, if (duration > 0) n / duration else 0.0)),
-                ReportLine("gaps over 2 s", gaps.toString(), if (gaps == 0) Verdict.OK else Verdict.WATCH),
+                ReportLine("gaps over 2 s (engine on)", gaps.toString(), if (gaps == 0) Verdict.OK else Verdict.WATCH),
             ))
 
             val all = verdicts.sortedBy { if (it.verdict == Verdict.CHECK) 0 else 1 } + oks.filter { it.label.isNotEmpty() }

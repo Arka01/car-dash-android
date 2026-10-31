@@ -182,7 +182,7 @@ show `too short`.
 | WARM-UP (cold start only, coolant < 70 °C) | Start coolant, time to coolant 70 / 80 °C and oil 85 °C, max rpm while cold | above 2500 rpm while cold: 0 s OK, ≤10 s WATCH, more CHECK |
 | BATTERY | Resting voltage before the start (charge %), start dip (+ readings), charging, time below 12 V, highest, at end | resting ≥75 % OK, ≥25 % WATCH; dip ≥10.0 V OK, ≥9.6 V WATCH (needs 5 readings in 2 s); smart alternator: lowest 5-min peak ≥13.2 V OK, ≥12.8 V WATCH; below 12 V while running (30 s after a start): <30 s OK, <5 min WATCH; above 15.0 V for 5 s WATCH, 15.5 V CHECK |
 | ENGINE | Peak torque / power, coolant and oil max, intake range, long fuel trim, catalyst, trouble codes | coolant >105 / oil >120 °C WATCH (CHECK >115 / >135); trim ±10 % WATCH, ±20 % CHECK; catalyst >900 °C CHECK; any trouble code CHECK |
-| DATA | Rows and rows per second, gaps over 2 s | a gap = WATCH |
+| DATA | Rows and rows per second, gaps over 2 s while the engine runs (with the ignition off the app writes a row every ~2 s on purpose) | a gap = WATCH |
 
 ---
 
@@ -200,7 +200,8 @@ The summary is in **DRIVES → the drive → AI SUMMARY** (spoken part, then the
 **[AI SUMMARY]** / **[WRITE AGAIN]** there writes one for any drive (also older ones) and reads it
 aloud. Voice follows **[VOICE ON/OFF]** (DEV). Saved as `drive_<date>_<time>_summary.txt`.
 
-The AI gets the report **with the app's verdicts** (it mustn't judge numbers itself), short notes
+The AI gets the report **with the app's verdicts** (it mustn't judge numbers itself, and only the
+WATCH / CHECK lines of that drive count as findings), short notes
 about the car (`car_notes.txt` in the car's folder: smart alternator, battery history, normal
 temperatures, unreliable outside-air reading, the owner's limits) and one line per earlier drive.
 
