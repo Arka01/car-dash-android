@@ -225,14 +225,29 @@ object LocalLlm {
 
     // ---------------------------------------------------------------- asking
 
-    /** Asks one question (no memory of earlier ones); the answer streams into [state]. */
-    fun ask(context: Context, question: String): String? {
+    /** True if a model has been imported. */
+    fun hasModel(context: Context) = modelFile(context.applicationContext) != null
+
+    /**
+     * Asks one question (no memory of earlier ones); the answer streams into [state].
+     * [system] / [maxTokens] replace the settings' (drive summaries); [allowLive] lets it run while
+     * LIVE is only listening with the ignition off; [onDone] gets the answer, or null if it failed.
+     */
+    fun ask(
+        context: Context,
+        question: String,
+        system: String? = null,
+        maxTokens: Int? = null,
+        allowLive: Boolean = false,
+        onDone: ((String?) -> Unit)? = null,
+    ): String? {
         val app = context.applicationContext
         val model = modelFile(app) ?: return "Import a model first"
         if (store.value.busy) return "Busy: wait or STOP"
         // The drive recording comes first: the model uses a lot of memory and processor.
-        if (Dash.state.value.mode == Mode.LIVE) return "Not while LIVE: stop reading first"
-        val s = settings(app)
+        if (!allowLive && Dash.state.value.mode == Mode.LIVE) return "Not while LIVE: stop reading first"
+        val saved = settings(app)
+        val s = saved.copy(systemPrompt = system ?: saved.systemPrompt, maxTokens = maxTokens ?: saved.maxTokens)
         store.update { it.copy(busy = true, question = question, answer = "", stats = "") }
         CrashReport.step(String.format(Locale.US, "ask: %s, model %s (%.2f GB), temp %.2f, topK %d, topP %.2f, max %d, question %d chars",
             if (s.gpu) "GPU" else "CPU", model.name, model.length() / 1e9, s.temperature, s.topK, s.topP, s.maxTokens, question.length), first = true)
@@ -293,6 +308,7 @@ object LocalLlm {
                     val words = answer.split(Regex("\\s+")).count { it.isNotBlank() }
                     status("done")
                     CrashReport.step("done: ${answer.length} characters")
+                    onDone?.invoke(answer.toString())
                     store.update {
                         it.copy(stats = String.format(Locale.US, "%.1f s (first words after %.1f s) · %d words · %s",
                             total, wait, words, if (engineGpu == true) "GPU" else "CPU"))
@@ -300,9 +316,11 @@ object LocalLlm {
                 }
             } catch (e: CancellationException) {
                 status("stopped")
+                onDone?.invoke(null)
                 throw e
             } catch (e: Throwable) {
                 CrashReport.step("failed: ${e.javaClass.name}: ${e.message}")
+                onDone?.invoke(null)
                 val tooLong = (e.message ?: "").contains("token", ignoreCase = true)
                 status("failed: ${e.message ?: e.javaClass.simpleName}" +
                     if (tooLong) " (question + answer too long? lower 'max answer')" else "")

@@ -1,6 +1,7 @@
 package io.github.arka01.cardash
 
 import android.content.Context
+import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.ai.LocalLlm
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.cars.Cars
@@ -102,6 +103,8 @@ object Dash {
         val pipeline = Pipeline(car, live, System.currentTimeMillis() / 1000.0)
         val recorder: DriveRecorder? = if (live) car.recordings?.let { DriveRecorder(it, car.key) } else null
         @Volatile var carConfirmed = !live
+        var engineRan = false   // since the last engine-off summary
+        var offSince = 0L       // when the ignition went off (0 = it isn't off)
 
         fun close() {
             recorder?.close()
@@ -209,11 +212,38 @@ object Dash {
         val recorder = r.recorder?.takeIf { r.carConfirmed }
         recorder?.write(readings, input, derived.values, carState)
         if (sentence != null) Speech.say(r.context, sentence)
+        if (recorder != null) engineOffCheck(r, recorder, carState)
         val rows = recorder?.rows ?: 0
         update(gen) {
             change(it.copy(readings = readings, derived = derived, adapterVoltage = portVolts ?: it.adapterVoltage, recordedRows = rows))
         }
     }
+
+    /**
+     * After the engine has run, ignition off for [ENGINE_OFF_MS] (LIVE keeps listening while Android
+     * Auto is connected): the drive report and the AI's spoken summary (owner waits ~1 min in the
+     * car before getting out). Starting the engine again stops a summary being written.
+     */
+    private fun engineOffCheck(r: Run, recorder: DriveRecorder, state: CarState) {
+        val now = System.currentTimeMillis()
+        when (state) {
+            CarState.ENGINE_ON -> {
+                r.engineRan = true
+                r.offSince = 0L
+                DriveSummary.cancel()
+            }
+            CarState.IGNITION_OFF -> {
+                if (r.offSince == 0L) r.offSince = now
+                if (r.engineRan && now - r.offSince >= ENGINE_OFF_MS) {
+                    r.engineRan = false
+                    DriveReports.engineOff(r.context, r.car, recorder.csv)
+                }
+            }
+            else -> r.offSince = 0L
+        }
+    }
+
+    private const val ENGINE_OFF_MS = 20_000L
 
     /**
      * After connecting, makes sure readings go to the right car's folder, using the VIN when the car

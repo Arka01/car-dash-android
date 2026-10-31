@@ -186,6 +186,26 @@ show `too short`.
 
 ---
 
+## Spoken drive summary (on-phone AI)
+
+With a model imported (see "On-phone AI"), the AI summarises each drive and **reads it aloud**:
+
+1. Get in, plug in the phone (Android Auto opens Car Dash, reading starts by itself), drive.
+2. Switch the engine off and wait in the car. After **20 s with the ignition off** the app works out the
+   drive report, the AI writes the summary (~30 s on CPU) and the short version is spoken: through the
+   car speakers while Android Auto is on, else the phone. Starting the engine again stops it.
+3. If the phone was unplugged first, the summary is written when LIVE stops instead.
+
+The summary is in **DRIVES → the drive → AI SUMMARY** (spoken part, then the longer one).
+**[AI SUMMARY]** / **[WRITE AGAIN]** there writes one for any drive (also older ones) and reads it
+aloud. Voice follows **[VOICE ON/OFF]** (DEV). Saved as `drive_<date>_<time>_summary.txt`.
+
+The AI gets the report **with the app's verdicts** (it mustn't judge numbers itself), short notes
+about the car (`car_notes.txt` in the car's folder: smart alternator, battery history, normal
+temperatures, unreliable outside-air reading, the owner's limits) and one line per earlier drive.
+
+---
+
 ## On-phone AI
 
 A language model that runs **on the phone itself** (Google's LiteRT-LM engine, the one inside the

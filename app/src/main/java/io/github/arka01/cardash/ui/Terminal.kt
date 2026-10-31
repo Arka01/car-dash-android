@@ -63,6 +63,7 @@ import io.github.arka01.cardash.KeyMarks
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
 import io.github.arka01.cardash.ai.AiSettings
+import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.ai.LocalLlm
 import io.github.arka01.cardash.logic.Calculations
 import io.github.arka01.cardash.logic.Level
@@ -838,7 +839,7 @@ private fun AiView(settings: AiSettings, actions: Actions) {
         item { SettingLine("top-P", String.format(Locale.US, "%.2f", settings.topP), "topP", actions) }
         item { SettingLine("max answer", "${settings.maxTokens} tokens", "maxTokens", actions) }
         item { SettingLine("runs on", if (settings.gpu) "GPU" else "CPU", "backend", actions) }
-        item { SettingLine("system prompt", "[EDIT]", "system", actions) }
+        item { SettingLine("system prompt", "EDIT", "system", actions) }
         item { Line(wrap = true, lines = Int.MAX_VALUE) { put(settings.systemPrompt, DIM) } }
         item { Section("ASK") }
         item {
@@ -855,7 +856,7 @@ private fun AiView(settings: AiSettings, actions: Actions) {
             item { Line(wrap = true) { put("> ", DIM); put(ai.question.lineSequence().first().take(120), DIM) } }
         }
         if (ai.answer.isNotEmpty()) {
-            items(ai.answer.split("\n")) { line -> Line(wrap = true, lines = Int.MAX_VALUE) { put(line) } }
+            items(DriveSummary.plain(ai.answer).split("\n")) { line -> Line(wrap = true, lines = Int.MAX_VALUE) { put(line) } }
         }
         if (ai.stats.isNotEmpty()) item { Line(wrap = true) { put(ai.stats, DIM) } }
     }
@@ -928,6 +929,12 @@ private fun DrivesView(s: Snapshot) {
 @Composable
 private fun DriveDetail(item: DriveItem, back: () -> Unit) {
     val r = item.report ?: return
+    val context = LocalContext.current
+    val changes by DriveSummary.changes.collectAsState()
+    val busyWith by DriveSummary.busyWith.collectAsState()
+    val summary = remember(item.csv, changes) { DriveSummary.read(item.csv) }
+    val writing = busyWith == item.csv.name
+    val ai by LocalLlm.state.collectAsState()
     LazyColumn {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -936,6 +943,27 @@ private fun DriveDetail(item: DriveItem, back: () -> Unit) {
             }
         }
         item { Line { put(String.format(Locale.US, "%.0f min · %.1f km", r.minutes, r.km), DIM) } }
+        // The on-phone AI's summary (ai/DriveSummary): written after the engine is switched off, read aloud.
+        item { Section("AI SUMMARY") }
+        when {
+            writing -> item { Line(wrap = true) { put("writing… ${ai.status}", AMBER) } }
+            summary != null -> {
+                item { Line(wrap = true, lines = Int.MAX_VALUE) { put(summary.spoken, GREEN) } }
+                items(summary.full.split("\n").filter { it.isNotBlank() }) { line ->
+                    Line(wrap = true, lines = Int.MAX_VALUE) { put(line, DIM) }
+                }
+            }
+            else -> item { Line(wrap = true) { put("none yet", DIM) } }
+        }
+        if (!writing) {
+            item {
+                Key(if (summary == null) "AI SUMMARY" else "WRITE AGAIN", false, GREEN) {
+                    DriveReports.summarize(context, item.csv)?.let {
+                        android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
         item { Section("VERDICT") }
         items(r.verdicts) { v ->
             Line(wrap = true) {

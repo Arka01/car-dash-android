@@ -211,7 +211,7 @@ class DriveReport(
                     ReportLine("max rpm while cold", coldMax?.let { String.format(Locale.US, "%.0f", it) } ?: "--", v),
                 ))
                 finding(when (v) {
-                    Verdict.OK -> ReportLine("cold start driven gently", "")
+                    Verdict.OK -> ReportLine("cold start driven gently", "", v)
                     else -> ReportLine("revved while cold", String.format(Locale.US, "above %.0f rpm for %.0f s", COLD_RPM_LIMIT, above), v)
                 })
             }

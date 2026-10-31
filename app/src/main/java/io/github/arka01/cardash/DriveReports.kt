@@ -1,6 +1,7 @@
 package io.github.arka01.cardash
 
 import android.content.Context
+import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.cars.Cars
 import io.github.arka01.cardash.logic.DriveReport
@@ -64,10 +65,36 @@ object DriveReports {
                 if (!csv.exists()) return@withLock
                 reportFile(csv).delete()   // a report of a part of this drive, if one was made meanwhile
                 val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
-                calculate(csv, car, earlier)
+                val report = calculate(csv, car, earlier)
+                // Spoken summary, unless one was already made when the engine was switched off.
+                if (report != null && DriveSummary.read(csv) == null) DriveSummary.start(app, car, csv, report, earlier, speak = true)
             }
             if (Cars.active(app).key == car.key) refresh(app)
         }
+    }
+
+    /**
+     * The engine was switched off (ignition off for a while, LIVE still listening): the report of
+     * the drive so far, then the AI's spoken summary. The final report follows when LIVE stops.
+     */
+    fun engineOff(context: Context, car: CarProfile, csv: File) {
+        val app = context.applicationContext
+        scope.launch {
+            lock.withLock {
+                val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
+                val report = calculate(csv, car, earlier) ?: return@withLock
+                DriveSummary.start(app, car, csv, report, earlier, speak = true)
+            }
+        }
+    }
+
+    /** [AI SUMMARY] in a drive's report: write (or rewrite) its summary and read it aloud. */
+    fun summarize(context: Context, csv: File): String? {
+        val app = context.applicationContext
+        val car = Cars.active(app)
+        val report = load(csv) ?: return "No report for this drive yet"
+        val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
+        return DriveSummary.start(app, car, csv, report, earlier, speak = true)
     }
 
     private fun load(csv: File): DriveReport? = runCatching {
