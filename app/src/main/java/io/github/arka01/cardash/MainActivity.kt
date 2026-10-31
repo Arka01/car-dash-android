@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -22,6 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
+import io.github.arka01.cardash.ai.AiSettings
+import io.github.arka01.cardash.ai.LocalLlm
 import io.github.arka01.cardash.cars.Cars
 import io.github.arka01.cardash.logic.GearCalibration
 import io.github.arka01.cardash.obd.Adapters
@@ -31,11 +34,17 @@ import io.github.arka01.cardash.ui.TerminalApp
 
 /**
  * Phone screen. The look is in ui/Terminal.kt; this class handles Bluetooth permission, adapter,
- * sharing and the dialogs (car choice, NEW CAR questions, REFUEL, GEARS, REPLAY).
+ * sharing and the dialogs (car choice, NEW CAR questions, REFUEL, GEARS, REPLAY, AI).
  */
 class MainActivity : ComponentActivity() {
     private var adapterName by mutableStateOf<String?>(null)
     private var voiceOn by mutableStateOf(true)
+    private var aiSettings by mutableStateOf<AiSettings?>(null)
+
+    /** IMPORT MODEL: Android's file picker; the chosen .litertlm file is copied into the app. */
+    private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) LocalLlm.importModel(this, uri)?.let { toast(it) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,6 +55,8 @@ class MainActivity : ComponentActivity() {
         Cars.init(this)
         Speech.init(this)
         voiceOn = !Speech.muted(this)
+        LocalLlm.init(this)
+        aiSettings = LocalLlm.settings(this)
         if (Dash.state.value.car == null) Dash.chooseCar(this, Cars.active(this).key)
         val actions = Actions(
             connect = ::connect,
@@ -67,12 +78,18 @@ class MainActivity : ComponentActivity() {
                 voiceOn = !voiceOn
                 Speech.setMuted(this, !voiceOn)
             },
+            aiImport = { pickModel.launch(arrayOf("*/*")) },
+            aiRemove = ::removeModel,
+            aiAsk = ::askAi,
+            aiTest = { LocalLlm.ask(this, LocalLlm.TEST_QUESTION)?.let { toast(it) } },
+            aiStop = { LocalLlm.stop() },
+            aiSetting = ::editAiSetting,
         )
         setContent {
             val snap by Dash.state.collectAsState()
             // A finished NEW CAR scan of a car not set up yet: ask the questions.
             LaunchedEffect(snap.probe) { snap.probe?.let { askNewCar(it) } }
-            TerminalApp(adapterName, voiceOn, actions)
+            TerminalApp(adapterName, voiceOn, aiSettings ?: LocalLlm.settings(this), actions)
         }
 
         if (!Adapters.hasPermission(this)) askPermission()
@@ -286,9 +303,84 @@ class MainActivity : ComponentActivity() {
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
+    // ---------------------------------------------------------------- AI
+
+    private fun removeModel() {
+        AlertDialog.Builder(this)
+            .setTitle("Remove the model from Car Dash?")
+            .setMessage("Frees its storage. Import it again to use the AI.")
+            .setPositiveButton("Remove") { _, _ -> LocalLlm.remove(this) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** ASK: type a question; the answer appears on the AI screen. */
+    private fun askAi() {
+        val input = EditText(this).apply {
+            setText(LocalLlm.state.value.question)
+            minLines = 3
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Ask the on-phone AI")
+            .setView(input)
+            .setPositiveButton("Ask") { _, _ ->
+                val q = input.text.toString().trim()
+                if (q.isNotEmpty()) LocalLlm.ask(this, q)?.let { toast(it) }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** One AI setting: a text box with the current value (backend: a GPU / CPU choice). */
+    private fun editAiSetting(key: String) {
+        val s = LocalLlm.settings(this)
+        fun apply(next: AiSettings) {
+            LocalLlm.save(this, next)
+            aiSettings = next
+        }
+        if (key == "backend") {
+            AlertDialog.Builder(this)
+                .setTitle("Run the model on")
+                .setItems(arrayOf("GPU (usually faster)", "CPU")) { _, i -> apply(s.copy(gpu = i == 0)) }
+                .show()
+            return
+        }
+        val (title, value, type) = when (key) {
+            "system" -> Triple("System prompt (blank = default)", s.systemPrompt, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
+            "temperature" -> Triple("Temperature (0 = factual … 1+ = creative)", s.temperature.toString(), DECIMAL)
+            "topK" -> Triple("Top-K (e.g. 40)", s.topK.toString(), InputType.TYPE_CLASS_NUMBER)
+            "topP" -> Triple("Top-P (0-1, e.g. 0.95)", s.topP.toString(), DECIMAL)
+            else -> Triple("Max answer length in tokens (e.g. 1024)", s.maxTokens.toString(), InputType.TYPE_CLASS_NUMBER)
+        }
+        val input = EditText(this).apply {
+            setText(value)
+            inputType = type
+            if (key == "system") minLines = 4
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val t = input.text.toString().trim()
+                val next = when (key) {
+                    "system" -> s.copy(systemPrompt = t.ifEmpty { LocalLlm.DEFAULT_PROMPT })
+                    "temperature" -> t.toDoubleOrNull()?.coerceIn(0.0, 2.0)?.let { s.copy(temperature = it) }
+                    "topK" -> t.toIntOrNull()?.coerceIn(1, 200)?.let { s.copy(topK = it) }
+                    "topP" -> t.toDoubleOrNull()?.coerceIn(0.01, 1.0)?.let { s.copy(topP = it) }
+                    else -> t.toIntOrNull()?.coerceIn(64, 3000)?.let { s.copy(maxTokens = it) }
+                }
+                if (next == null) toast("Not a valid number") else apply(next)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun askPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1)
         }
     }
 }
+
+private const val DECIMAL = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL

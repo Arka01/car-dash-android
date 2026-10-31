@@ -85,6 +85,7 @@ LIVE / STOP; tap an entry, or tap the dimmed screen or press Back to close it.
 | **[DASH]** | Big speed and gear, RPM and its bar, pedal and throttle bars, temperatures, warnings, then ENGINE / FUEL / AIR / CAR details |
 | **[INFO]** | Everything calculated: car, VIN, trouble codes, engine state, torque/power, fuel left and range, battery, trip (see "INFO tab") |
 | **[ALL]** | Every value the engine computer reports (about 50), by PID number |
+| **AI** | The on-phone language model: import the model file, its settings, ask questions (see "On-phone AI") |
 | **DEV** | Car tools (**[CAR] [NEW CAR] [PROBE] [GEARS] [REFUEL] [VOICE]**), **[DEMO] [REPLAY]**, **[ADAPTER]**, the **KEY TEST**, recording, **[SHARE LOG]** and the log |
 | **[LIVE]** | Connect to the car (live data) |
 | **[STOP]** | Stop whatever runs (LIVE, DEMO, REPLAY, TEST, scan) |
@@ -160,6 +161,33 @@ on DASH must be visible without scrolling.
 
 The AMT computer (7E9) is listed in the log but not read: it refuses direct requests, and its
 9 values only repeat the engine's (no gear).
+
+---
+
+## On-phone AI
+
+A language model that runs **on the phone itself** (Google's LiteRT-LM engine, the one inside the
+AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet access.
+
+**One-time setup:**
+1. On the phone's browser: `huggingface.co/litert-community/gemma-4-E2B-it-litert-lm` → **Files and
+   versions** → `gemma-4-E2B-it.litertlm` (2.59 GB, the standard Android CPU/GPU version; licence
+   Apache-2.0, no login needed) → download (Wi-Fi). Not the `-gpu`, `-web`, `.task` or NPU files.
+2. **[≡] → AI → [IMPORT MODEL]** → pick the file in Downloads. Car Dash copies it into its own storage
+   (about a minute); afterwards the copy in Downloads can be deleted. **[REMOVE]** deletes it again.
+
+**Use:** **[ASK]** types a question; **[TEST DRIVE]** asks about the 30 Oct 2026 drive (the same text
+tried in the Gallery app, to compare). The answer appears word by word, then the time it took.
+The model is loaded when needed (~10 s the first time, ~2–3 GB of memory) and unloaded after
+3 minutes without questions. It doesn't run while LIVE reading runs.
+
+| Setting | What it does | Default |
+|---|---|---|
+| temperature | 0 = factual and repeatable … 1+ = more varied | 0.30 |
+| top-K / top-P | How many candidate words it considers at each step | 40 / 0.95 |
+| max answer | Longest answer, in tokens (~¾ word each) | 1024 |
+| runs on | GPU (usually faster) or CPU; falls back to CPU if the GPU fails | GPU |
+| system prompt | Fixed instructions given before every question | "experienced car mechanic…" |
 
 ---
 
@@ -337,6 +365,7 @@ the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid o
 | `app/src/main/java/.../cars/` + `assets/cars/` | Car settings (`car.json`, same format as the Python project), per-car folders, VIN, NEW CAR names |
 | `app/src/main/java/.../logic/` | The Python dashboard's calculations: `Pipeline` (runs them all each round), `Rules` (warning levels), `Calculations` (gear, torque/power, heat soak, boost, hot state), `TripComputer`, `PedalCheck`, `Trends`, `BatteryMonitor`, `FuelTracker`, `WarmUpAdvisor`, `GearCalibration` |
 | `app/src/main/java/.../Speech.kt` | Says the warm-up messages (phone voice) |
+| `app/src/main/java/.../ai/LocalLlm.kt` | On-phone language model: import, settings, load / unload, streaming answers (LiteRT-LM 0.16.1) |
 | `app/src/main/java/.../DriveRecorder.kt` | Records every LIVE run to CSV + profile JSON (Python dashboard format) |
 | `app/src/main/java/.../demo/DemoPlayer.kt` + `assets/demo_drive.csv` | DEMO (a Tiago drive) and REPLAY (the app's own recordings) |
 | `app/src/main/java/.../obd/Probe.kt` | Questions to every computer: supported values, VIN, trouble codes, fuel type, module scan |

@@ -1,6 +1,7 @@
 package io.github.arka01.cardash
 
 import android.content.Context
+import io.github.arka01.cardash.ai.LocalLlm
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.cars.Cars
 import io.github.arka01.cardash.demo.DemoPlayer
@@ -127,6 +128,7 @@ object Dash {
 
     /** Every LIVE run is recorded (files/cars/<car>/recordings/drive_<date>_<time>.csv + _profile.json). */
     fun startLive(context: Context, adapter: SavedAdapter) {
+        LocalLlm.release()   // the on-phone AI's memory and processor go to the recording
         Cars.init(context)
         val gen = begin(context, Mode.LIVE, Cars.active(context), live = true, "Connecting…", adapter.name)
         ObdSession.start(context, adapter, gen, Task.Live)

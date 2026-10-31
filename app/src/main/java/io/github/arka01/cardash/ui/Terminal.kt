@@ -57,6 +57,8 @@ import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.KeyMarks
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
+import io.github.arka01.cardash.ai.AiSettings
+import io.github.arka01.cardash.ai.LocalLlm
 import io.github.arka01.cardash.logic.Calculations
 import io.github.arka01.cardash.logic.Level
 import io.github.arka01.cardash.logic.Rules
@@ -102,7 +104,7 @@ private class Cell(val width: Float, val height: Float)
 
 private val LocalCell = staticCompositionLocalOf { Cell(10f, 12f) }
 
-private enum class Tab { DASH, INFO, ALL, DEV }
+private enum class Tab { DASH, INFO, ALL, AI, DEV }
 
 /** What the screen can ask the activity to do. */
 class Actions(
@@ -122,10 +124,16 @@ class Actions(
     val refuel: () -> Unit,
     val replay: () -> Unit,
     val voice: () -> Unit,
+    val aiImport: () -> Unit,
+    val aiRemove: () -> Unit,
+    val aiAsk: () -> Unit,     // type a question
+    val aiTest: () -> Unit,    // the 30 Oct drive test question
+    val aiStop: () -> Unit,
+    val aiSetting: (String) -> Unit,   // edit one setting: system, temperature, topK, topP, maxTokens, backend
 )
 
 @Composable
-fun TerminalApp(adapterName: String?, voiceOn: Boolean, actions: Actions) {
+fun TerminalApp(adapterName: String?, voiceOn: Boolean, aiSettings: AiSettings, actions: Actions) {
     val snap by Dash.state.collectAsState()
     var tab by rememberSaveable { mutableStateOf(Tab.DASH) }   // DASH when the app opens
     var menuOpen by rememberSaveable { mutableStateOf(false) }
@@ -190,6 +198,7 @@ fun TerminalApp(adapterName: String?, voiceOn: Boolean, actions: Actions) {
                             }
                             Tab.INFO -> InfoView(snap, now)
                             Tab.ALL -> AllValues(snap, now, perRow = if (landscape) 2 else 1)
+                            Tab.AI -> AiView(aiSettings, actions)
                             Tab.DEV -> DevView(snap, adapterName, voiceOn, actions)
                         }
                     }
@@ -207,12 +216,12 @@ fun TerminalApp(adapterName: String?, voiceOn: Boolean, actions: Actions) {
 
 /** One line of terminal text made of coloured parts; [scale] makes the whole line bigger. */
 @Composable
-private fun Line(scale: Float = 1f, wrap: Boolean = false, build: AnnotatedString.Builder.() -> Unit) {
+private fun Line(scale: Float = 1f, wrap: Boolean = false, lines: Int = 4, build: AnnotatedString.Builder.() -> Unit) {
     val style = LocalTerm.current
     BasicText(
         text = buildAnnotatedString(build),
         style = style.copy(fontSize = style.fontSize * scale, lineHeight = style.lineHeight * scale),
-        maxLines = if (wrap) 4 else 1,
+        maxLines = if (wrap) lines else 1,
         softWrap = wrap,
     )
 }
@@ -769,5 +778,68 @@ private fun InfoView(s: Snapshot, now: Long) {
             Cells("km w/ MIL", s.f(0x21, "%.0f"), if (live) Rules.drivenWithMil(km).color() else DIM,
                 "clr", s.f(0x31, "%.0fkm"), on)
         }
+    }
+}
+
+// ---------------------------------------------------------------- AI tab
+
+/**
+ * The on-phone language model (ai/LocalLlm): the model file, its settings (as in Google's AI
+ * Edge Gallery app) and a test: ask a question, the answer appears word by word.
+ */
+@Composable
+private fun AiView(settings: AiSettings, actions: Actions) {
+    val ai by LocalLlm.state.collectAsState()
+    val hasModel = ai.modelName != null
+    LazyColumn {
+        item { Section("MODEL") }
+        item {
+            Line(wrap = true) {
+                put(ai.modelName ?: "none", if (hasModel) GREEN else AMBER)
+                if (hasModel) put(String.format(Locale.US, "  %.2f GB", ai.modelBytes / 1e9), DIM)
+            }
+        }
+        item { Line(wrap = true) { put(ai.status, if (ai.status.startsWith("failed") || ai.status.startsWith("import failed")) RED else DIM) } }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Key("IMPORT MODEL", false, if (ai.busy) DIM else GREEN, actions.aiImport)
+                Key("REMOVE", false, if (hasModel && !ai.busy) AMBER else DIM, actions.aiRemove)
+            }
+        }
+        item { Section("SETTINGS") }
+        item { SettingLine("temperature", String.format(Locale.US, "%.2f", settings.temperature), "temperature", actions) }
+        item { SettingLine("top-K", settings.topK.toString(), "topK", actions) }
+        item { SettingLine("top-P", String.format(Locale.US, "%.2f", settings.topP), "topP", actions) }
+        item { SettingLine("max answer", "${settings.maxTokens} tokens", "maxTokens", actions) }
+        item { SettingLine("runs on", if (settings.gpu) "GPU" else "CPU", "backend", actions) }
+        item { SettingLine("system prompt", "[EDIT]", "system", actions) }
+        item { Line(wrap = true, lines = Int.MAX_VALUE) { put(settings.systemPrompt, DIM) } }
+        item { Section("ASK") }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                if (ai.busy) {
+                    Key("STOP", false, AMBER, actions.aiStop)
+                } else {
+                    Key("ASK", false, if (hasModel) GREEN else DIM, actions.aiAsk)
+                    Key("TEST DRIVE", false, if (hasModel) GREEN else DIM, actions.aiTest)
+                }
+            }
+        }
+        if (ai.question.isNotEmpty()) {
+            item { Line(wrap = true) { put("> ", DIM); put(ai.question.lineSequence().first().take(120), DIM) } }
+        }
+        if (ai.answer.isNotEmpty()) {
+            items(ai.answer.split("\n")) { line -> Line(wrap = true, lines = Int.MAX_VALUE) { put(line) } }
+        }
+        if (ai.stats.isNotEmpty()) item { Line(wrap = true) { put(ai.stats, DIM) } }
+    }
+}
+
+/** "label ........ value" with the value tappable to change it. */
+@Composable
+private fun SettingLine(label: String, value: String, key: String, actions: Actions) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Line { put(label, DIM) }
+        Key(value, false, GREEN) { actions.aiSetting(key) }
     }
 }

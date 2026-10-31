@@ -67,6 +67,10 @@ dependencies {
     implementation("androidx.core:core:1.17.0")   // 1.19+ needs Android SDK 37
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
+    // On-phone language model (Google's LiteRT-LM, the engine of the AI Edge Gallery app).
+    // 0.16.1: the newest built with Kotlin 2.2 like this app (0.17+ need Kotlin 2.4).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
+
     // Phone screen (Jetpack Compose). Compose 1.12+ needs Android SDK 37 and AGP 9.
     implementation(platform("androidx.compose:compose-bom:2026.06.01"))   // Compose 1.11.4
     implementation("androidx.compose.ui:ui")
