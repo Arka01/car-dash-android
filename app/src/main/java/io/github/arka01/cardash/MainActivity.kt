@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
             aiSetting = ::editAiSetting,
             shareCrash = ::shareCrash,
             clearCrash = { CrashReport.clear(this) },
+            update = ::openStore,
         )
         setContent {
             val snap by Dash.state.collectAsState()
@@ -307,6 +308,17 @@ class MainActivity : ComponentActivity() {
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
     // ---------------------------------------------------------------- AI
+
+    /** UPDATE: Car Dash's page in the Play Store app (the browser if the Play Store isn't there). */
+    private fun openStore() {
+        val play = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=$packageName"))
+            .setPackage("com.android.vending")
+        try {
+            startActivity(play)
+        } catch (e: android.content.ActivityNotFoundException) {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/apps/details?id=$packageName")))
+        }
+    }
 
     /** Sends the crash report as text (e.g. by email or WhatsApp). */
     private fun shareCrash() {

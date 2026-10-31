@@ -324,7 +324,7 @@ private (internal testing, only your own Google account). Privacy policy: `PRIVA
 
 **Each new version (automatic since build 11):** every push to `main` builds the app and the
 GitHub Actions step **Upload to Google Play** puts `car-dash-N.aab` on internal testing by itself.
-On the phone: Play Store → **Update** (or open
+On the phone: **[≡] → UPDATE** (opens Car Dash in the Play Store) → **Update** (or open
 `https://play.google.com/store/apps/details?id=io.github.arka01.cardash`); a new version can take
 10–15 minutes to show up.
 

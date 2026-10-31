@@ -138,6 +138,7 @@ class Actions(
     val aiSetting: (String) -> Unit,   // edit one setting: system, temperature, topK, topP, maxTokens, backend
     val shareCrash: () -> Unit,
     val clearCrash: () -> Unit,
+    val update: () -> Unit,   // opens Car Dash's Play Store page
 )
 
 @Composable
@@ -387,6 +388,9 @@ private fun Sidebar(open: Boolean, tab: Tab, s: Snapshot, actions: Actions, clos
                     Mode.LIVE -> SideItem("STOP", false, GREEN) { actions.stop(); close() }
                     else -> SideItem("STOP", false, AMBER) { actions.stop(); close() }
                 }
+                Line { put("─".repeat(SIDEBAR), DIM) }
+                // Play Store page: shows "Update" there if a newer version is out (10–15 min after a build).
+                SideItem("UPDATE", false, DIM) { actions.update(); close() }
             }
             Box(Modifier.width(1.dp).fillMaxHeight().background(DIM))
         }
