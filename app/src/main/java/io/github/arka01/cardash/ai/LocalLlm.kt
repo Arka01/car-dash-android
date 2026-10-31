@@ -10,6 +10,8 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import io.github.arka01.cardash.CrashReport
 import io.github.arka01.cardash.Dash
@@ -27,10 +29,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.IOException
 import java.util.Locale
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /** What the AI screen shows. */
 data class AiState(
@@ -251,14 +256,30 @@ object LocalLlm {
                     var firstAt = 0L
                     try {
                         currentCoroutineContext().ensureActive()   // STOP pressed while loading
-                        c.sendMessageAsync(question).collect { message ->
-                            if (firstAt == 0L) {
-                                firstAt = System.currentTimeMillis()
-                                CrashReport.step("first words")
-                            }
-                            answer.append(message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text })
-                            val text = answer.toString()
-                            store.update { it.copy(answer = text, status = "answering…") }
+                        // The callback version, not the Flow one: in 0.16.1 the Flow's end calls a coroutines
+                        // function that no longer exists in the newer coroutines this app uses (crash report
+                        // 2026-10-31: NoSuchMethodError SendChannel.close$default at the end of the answer).
+                        suspendCancellableCoroutine { done ->
+                            c.sendMessageAsync(question, object : MessageCallback {
+                                override fun onMessage(message: Message) {
+                                    if (firstAt == 0L) {
+                                        firstAt = System.currentTimeMillis()
+                                        CrashReport.step("first words")
+                                    }
+                                    val piece = message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
+                                    val text = synchronized(answer) { answer.append(piece).toString() }
+                                    store.update { it.copy(answer = text, status = "answering…") }
+                                }
+
+                                override fun onDone() {
+                                    if (done.isActive) done.resume(Unit)
+                                }
+
+                                override fun onError(throwable: Throwable) {
+                                    if (done.isActive) done.resumeWithException(throwable)
+                                }
+                            })
+                            done.invokeOnCancellation { runCatching { c.cancelProcess() } }
                         }
                     } finally {
                         conversation = null
