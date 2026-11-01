@@ -85,7 +85,6 @@ class MainActivity : ComponentActivity() {
             aiRemove = ::removeModel,
             aiAsk = ::askAi,
             aiAbout = ::chooseAskAbout,
-            aiTest = { LocalLlm.ask(this, LocalLlm.TEST_QUESTION)?.let { toast(it) } },
             aiStop = { LocalLlm.stop() },
             aiSetting = ::editAiSetting,
             shareCrash = ::shareCrash,

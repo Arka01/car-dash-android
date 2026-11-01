@@ -234,8 +234,7 @@ AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet a
 **Use:** **Ask** types a question (empty box). It's **about a drive**: **About** (above the buttons)
 chooses the newest drive (default), any drive, or *No drive* for general questions. The chosen
 drive's report, the car notes and earlier drives go with the question, so "How was my drive?" or
-"Why is the battery a WATCH?" work (it only knows what's in that report). **Test drive** asks about
-the 30 Oct 2026 drive (the same text tried in the Gallery app, to compare). With a model imported,
+"Why is the battery a WATCH?" work (it only knows what's in that report). With a model imported,
 **Import model** reads **Replace model**. **Show prompt** (under an answer) shows exactly what the
 model got: the system instruction and the whole message (for Ask: car notes, earlier drives, the
 drive report and the question; also for drive summaries). The answer appears word by word, then the time it took.

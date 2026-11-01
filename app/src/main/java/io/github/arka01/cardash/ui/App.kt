@@ -81,7 +81,6 @@ class Actions(
     val aiRemove: () -> Unit,
     val aiAsk: () -> Unit,     // type a question
     val aiAbout: () -> Unit,   // choose which drive questions are about
-    val aiTest: () -> Unit,    // the 30 Oct drive test question
     val aiStop: () -> Unit,
     val aiSetting: (String) -> Unit,   // edit one setting: system, temperature, topK, topP, maxTokens, backend
     val shareCrash: () -> Unit,

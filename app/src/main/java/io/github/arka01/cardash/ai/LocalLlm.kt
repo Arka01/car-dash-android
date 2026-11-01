@@ -79,15 +79,6 @@ object LocalLlm {
         "non-expert owner. Be short and concrete. Only use the numbers given; never invent values. If something " +
         "is normal, say so. If something is worrying, say why and what to check."
 
-    /** TEST: the 30 Oct 2026 drive in plain numbers, the same text tried in the Gallery app (to compare). */
-    const val TEST_QUESTION = "Explain this drive of my 2023 Tata Tiago 1.2 petrol (AMT) and tell me if anything " +
-        "is worrying.\n\nDrive: 30 Oct, 15 min, 3.5 km city driving, top speed 60 km/h, 28% of the time idling.\n" +
-        "Fuel: 0.35 L used, 10.0 L/100 km.\nEngine start: coolant 27 °C (cold start). Coolant reached 70 °C after " +
-        "5 min, 80 °C after 7 min, oil 85 °C after 8 min. Max RPM while cold: 2330.\nBattery: resting 12.2 V before " +
-        "start. Lowest voltage while cranking 10.5 V. While driving mostly 12.6 to 14.6 V, but for one minute it " +
-        "averaged 11.9 V (lowest 11.6 V) at 31 km/h. At the end 13.9 V. The car has a smart alternator.\n" +
-        "Engine: peak torque 111 Nm, peak power 58 bhp. No trouble codes."
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()   // one import / load / answer / unload at a time
     private val store = MutableStateFlow(AiState())

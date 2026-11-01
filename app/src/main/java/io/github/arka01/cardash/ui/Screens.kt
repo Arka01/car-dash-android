@@ -289,7 +289,7 @@ internal fun AiScreen(settings: AiSettings, actions: Actions) {
                 if (ai.busy) {
                     Buttons(b("Stop", WARN, actions.aiStop))
                 } else {
-                    Buttons(b("Ask", if (hasModel) NEON else FAINT, actions.aiAsk), b("Test drive", if (hasModel) NEON else FAINT, actions.aiTest))
+                    Buttons(b("Ask", if (hasModel) NEON else FAINT, actions.aiAsk))
                 }
                 if (ai.question.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
