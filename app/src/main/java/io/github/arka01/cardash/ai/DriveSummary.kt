@@ -11,8 +11,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-/** A drive's AI summary: [spoken] (read aloud, a few sentences) and [full] (shown in DRIVES). */
-class Summary(val spoken: String, val full: String)
+/** A drive's AI summary: [witty] line, [spoken] (read aloud, a few sentences) and [full] (shown in DRIVES). */
+class Summary(val spoken: String, val full: String, val witty: String = "")
 
 /**
  * The on-phone AI's summary of a drive, written after the engine is switched off and read aloud
@@ -72,9 +72,10 @@ object DriveSummary {
 
     fun read(csv: File): Summary? = runCatching {
         val text = file(csv).takeIf { it.exists() }?.readText() ?: return null
+        val witty = text.substringAfter("WITTY:\n", "").substringBefore("\n\nSPOKEN:\n").trim()
         val spoken = text.substringAfter("SPOKEN:\n", "").substringBefore("\n\nFULL:\n").trim()
         val full = text.substringAfter("FULL:\n", text).trim()
-        Summary(spoken, full)
+        Summary(spoken, full, witty)
     }.getOrNull()
 
     /**
@@ -89,7 +90,9 @@ object DriveSummary {
             append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
             append("BACKGROUND, NOT FINDINGS: EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
             append("THIS DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append('\n')
-            append("Write exactly two parts:\n")
+            append("Write exactly three parts:\n")
+            append("WITTY: one short, light-hearted, friendly sentence about the kind of drive this was (${report.driveType}), " +
+                "for example about enjoying a highway run or surviving heavy traffic. Never mock the driver. No numbers.\n")
             append("SPOKEN: 2 to 4 short sentences to read aloud to the driver. Plain words, at most two numbers, no lists, no symbols.\n")
             append("FULL: a short summary of up to 8 lines, with the reasons.")
         }
@@ -97,9 +100,10 @@ object DriveSummary {
         val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = MAX_TOKENS, allowLive = true, shown = "Summary of the drive") { answer ->
             if (answer != null) {
                 val summary = parse(answer)
-                runCatching { file(csv).writeText("SPOKEN:\n${summary.spoken}\n\nFULL:\n${summary.full}\n") }
+                val witty = summary.witty.ifEmpty { fallbackWitty(report.driveType) }
+                runCatching { file(csv).writeText("WITTY:\n$witty\n\nSPOKEN:\n${summary.spoken}\n\nFULL:\n${summary.full}\n") }
                 saved.value++
-                if (speak && summary.spoken.isNotEmpty()) Speech.say(app, greeting(report) + " " + summary.spoken)
+                if (speak && summary.spoken.isNotEmpty()) Speech.say(app, greeting(report) + " " + witty + " " + summary.spoken)
             }
             working.value = null
         }
@@ -125,20 +129,33 @@ object DriveSummary {
         return "$hello Your drive is complete: $minutes ${if (minutes == 1) "minute" else "minutes"} and $km kilometres."
     }
 
+    /** A ready-made witty line for the kind of drive, if the AI didn't write one. */
+    private fun fallbackWitty(type: String): String = when {
+        type.startsWith("standing still") -> "I hope you enjoyed just sitting in one place."
+        type.startsWith("traffic jam") -> "Well done for surviving that traffic."
+        type.startsWith("highway") -> "I hope you enjoyed the open road."
+        type.startsWith("city") -> "A proper city drive, stop and go."
+        else -> "A nice mix of everything today."
+    } + if (type.endsWith("spirited")) " And a little sporty, too." else ""
+
     /** Stops a summary being written (the engine was started again). */
     fun cancel() {
         if (working.value != null) LocalLlm.stop()
     }
 
-    /** SPOKEN / FULL parts of the answer, without Markdown marks; first sentences if the model ignored the format. */
+    /** WITTY / SPOKEN / FULL parts of the answer, without Markdown marks; first sentences if the model ignored the format. */
     private fun parse(answer: String): Summary {
         val clean = plain(answer)
+        val wittyAt = Regex("WITTY\\s*:", RegexOption.IGNORE_CASE).find(clean)
         val spokenAt = Regex("SPOKEN\\s*:", RegexOption.IGNORE_CASE).find(clean)
         val fullAt = Regex("FULL\\s*:", RegexOption.IGNORE_CASE).find(clean)
         if (spokenAt != null && fullAt != null && fullAt.range.first > spokenAt.range.last) {
+            val witty = if (wittyAt != null && wittyAt.range.last < spokenAt.range.first) {
+                clean.substring(wittyAt.range.last + 1, spokenAt.range.first).trim().lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: ""
+            } else ""
             val spoken = clean.substring(spokenAt.range.last + 1, fullAt.range.first).trim()
             val full = clean.substring(fullAt.range.last + 1).trim()
-            return Summary(spoken, full)
+            return Summary(spoken, full, witty)
         }
         val sentences = Regex("(?<=[.!?])\\s+").split(clean.trim())
         return Summary(sentences.take(3).joinToString(" "), clean.trim())

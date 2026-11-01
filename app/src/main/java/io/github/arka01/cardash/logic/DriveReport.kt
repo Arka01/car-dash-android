@@ -30,6 +30,7 @@ class DriveReport(
     val lPer100: Double?,
     val verdicts: List<ReportLine>,   // the WATCH / CHECK findings first, then key OKs
     val sections: List<ReportSection>,
+    val driveType: String = "mixed",  // standing still / traffic jam / city / highway / mixed, + ", spirited"
 ) {
     /** The worst verdict, for the drive list. */
     val worst: Verdict
@@ -47,6 +48,7 @@ class DriveReport(
         .put("km", km)
         .put("litres", litres ?: JSONObject.NULL)
         .put("l_per_100km", lPer100 ?: JSONObject.NULL)
+        .put("drive_type", driveType)
         .put("verdicts", JSONArray(verdicts.map { it.toJson() }))
         .put("sections", JSONArray(sections.map { s ->
             JSONObject().put("title", s.title).put("lines", JSONArray(s.lines.map { it.toJson() }))
@@ -56,6 +58,7 @@ class DriveReport(
     fun text(): String = buildString {
         append(SimpleDateFormat("d MMM yyyy HH:mm", Locale.UK).format(start))
         append(String.format(Locale.US, ", %.0f min, %.1f km\n", minutes, km))
+        append("Kind of drive: ").append(driveType).append('\n')
         append("VERDICT\n")
         verdicts.forEach { append("  ${it.verdict} ${it.label}${if (it.value.isNotEmpty()) " ${it.value}" else ""}\n") }
         sections.forEach { s ->
@@ -66,7 +69,7 @@ class DriveReport(
 
     companion object {
         /** Raise when the calculation changes: older saved reports are then calculated again. */
-        const val VERSION = 3   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK
+        const val VERSION = 4   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK; 4: drive type
 
         fun fromJson(j: JSONObject): DriveReport? {
             if (j.optInt("version") != VERSION) return null
@@ -82,6 +85,7 @@ class DriveReport(
                 km = j.getDouble("km"),
                 litres = if (j.isNull("litres")) null else j.getDouble("litres"),
                 lPer100 = if (j.isNull("l_per_100km")) null else j.getDouble("l_per_100km"),
+                driveType = j.optString("drive_type", "mixed"),
                 verdicts = lines(j.getJSONArray("verdicts")),
                 sections = (0 until sections.length()).map { i ->
                     val s = sections.getJSONObject(i)
@@ -387,7 +391,19 @@ class DriveReport(
             ))
 
             val all = verdicts.sortedBy { if (it.verdict == Verdict.CHECK) 0 else 1 } + oks.filter { it.label.isNotEmpty() }
-            return DriveReport(csv.name, t[0], duration / 60, km, litres, lPer100, all, sections)
+            // The kind of drive, for the spoken greeting's witty line (2026-11-01).
+            val movingSecs = (0 until n).filter { !speed[it].isNaN() && speed[it] > 2 }.sumOf { dt[it] }
+            val fastSecs = (0 until n).filter { !speed[it].isNaN() && speed[it] >= 70 }.sumOf { dt[it] }
+            val movingAvg = if (movingSecs > 0) km / (movingSecs / 3600) else 0.0
+            val idleShare = if (runningSecs > 0) idleSecs / runningSecs else 0.0
+            val type = when {
+                km < 0.3 -> "standing still"
+                movingSecs > 0 && fastSecs / movingSecs >= 0.4 -> "highway"
+                movingAvg < 15 && idleShare > 0.3 -> "traffic jam"
+                movingAvg < 35 -> "city"
+                else -> "mixed"
+            } + if (overRedline >= 1.0) ", spirited" else ""
+            return DriveReport(csv.name, t[0], duration / 60, km, litres, lPer100, all, sections, type)
         }
 
         private class Row(val time: String?, val values: Map<String, Double>)

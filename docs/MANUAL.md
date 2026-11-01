@@ -129,7 +129,7 @@ Car Dash knows whether the **engine is running**, **starting**, **stopping**, or
 When a drive ends, Car Dash works out a **drive report** with a verdict for each check (see section 7).
 
 ### A spoken summary after you switch off
-About **20 seconds after you switch off the engine**, while you're still in the car, the AI writes a short summary of the drive and **reads it aloud**, starting with a greeting and the drive in one line ("Good evening! Your drive is complete: 15 minutes and 3.5 kilometres."). It plays through the car's speakers if Android Auto is still on, otherwise through the phone. If you start the engine again before it speaks (a quick stop), the summary waits for the real end of the drive. You can turn the voice off in **Settings → Voice**.
+About **20 seconds after you switch off the engine**, while you're still in the car, the AI writes a short summary of the drive and **reads it aloud**, starting with a greeting and the drive in one line ("Good evening! Your drive is complete: 15 minutes and 3.5 kilometres."), then a **light-hearted line about the kind of drive**: the app recognises standing still, a traffic jam, city driving, a highway run or a mix (and a sporty drive), and the AI makes a friendly remark about it, e.g. "I hope you enjoyed the open road." It plays through the car's speakers if Android Auto is still on, otherwise through the phone. If you start the engine again before it speaks (a quick stop), the summary waits for the real end of the drive. You can turn the voice off in **Settings → Voice**.
 
 ### Your gears are learned
 Car Dash learns your gearbox by itself:
