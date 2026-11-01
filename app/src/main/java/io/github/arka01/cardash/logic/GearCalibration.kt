@@ -8,8 +8,11 @@ import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.round
 
-/** Result of a gear calibration: what to show, and the values to save (null: nothing to save). */
-class GearResult(val lines: List<String>, val suggested: List<Double>?)
+/** One gear: RPM per km/h, whether it was measured (else estimated from the specs) and from how many readings. */
+class GearDetail(val value: Double, val measured: Boolean, val readings: Int)
+
+/** Result of a gear calibration: what to show, the values to save (null: nothing to save) and per-gear details. */
+class GearResult(val lines: List<String>, val suggested: List<Double>?, val details: List<GearDetail>? = null, val drives: Int = 0)
 
 /**
  * Measures RPM per km/h for each gear from the car's recorded drives (the Python --calibrate-gears).
@@ -30,21 +33,27 @@ object GearCalibration {
         val floor = maxOf(15.0, 0.01 * ratios.size)
         val peaks = bins.filter { (b, n) -> n >= floor && listOf(-2L, -1L, 1L, 2L).all { n >= (bins[b + it] ?: 0) } }
             .keys.map { exp(it * 0.02) }
-        val measured = peaks.map { p -> median(ratios.filter { abs(ln(it / p)) < 0.08 }) }.sortedDescending()
+        val clusters = peaks.map { p -> ratios.filter { abs(ln(it / p)) < 0.08 } }
+        val counts = clusters.associate { c -> median(c) to c.size }   // gear value -> readings
+        val measured = counts.keys.sortedDescending()
 
         val lines = mutableListOf("${ratios.size} in-gear readings from ${files.size} drives")
         if (measured.isEmpty()) return GearResult(lines + "No gear found clearly enough (drive longer in each gear).", null)
         val theory = car.theoreticalRpmPerKmh
         val suggested: List<Double>
+        val details: List<GearDetail>
         if (theory != null) {
             // Match each measured cluster to the theoretical gear it's closest to; fill unseen gears from theory.
             val byGear = HashMap<Int, Double>()
+            val readings = HashMap<Int, Int>()
             for (value in measured) {
                 val gear = theory.indices.minBy { abs(ln(value / theory[it])) }
                 byGear[gear] = round1(value)
+                readings[gear] = counts[value] ?: 0
             }
             val scale = median(byGear.map { (g, v) -> v / theory[g] })
             suggested = theory.indices.map { g -> byGear[g] ?: round1(theory[g] * scale) }
+            details = theory.indices.map { g -> GearDetail(suggested[g], g in byGear, readings[g] ?: 0) }
             for (g in theory.indices) {
                 val source = if (g in byGear) "measured" else String.format(Locale.US, "not driven: theory x %.3f", scale)
                 lines += String.format(Locale.US, "gear %d: %6.1f  (%s)", g + 1, suggested[g], source)
@@ -53,11 +62,12 @@ object GearCalibration {
             // No gear ratios known: number the clusters in order. Only right if the drives used
             // every gear from 1st up; a skipped gear shifts the numbers.
             suggested = measured.map { round1(it) }
+            details = measured.map { GearDetail(round1(it), true, counts[it] ?: 0) }
             suggested.forEachIndexed { g, v -> lines += String.format(Locale.US, "gear %d: %6.1f  (measured)", g + 1, v) }
             lines += "(numbered in order: check the drives used every gear from 1st, none skipped)"
         }
         if (suggested.isEmpty()) return GearResult(lines + "No gear found clearly enough.", null)
-        return GearResult(lines, suggested)
+        return GearResult(lines, suggested, details, files.size)
     }
 
     /** RPM / speed from readings that are steady (in gear, not shifting) and fast enough. */

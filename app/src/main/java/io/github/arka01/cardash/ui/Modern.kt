@@ -213,14 +213,17 @@ internal fun TopBar(s: Snapshot, now: Long, title: String, openMenu: () -> Unit)
 // ---------------------------------------------------------------- DASH
 
 /** One value card on the Dash. */
-private class ValueSpec(val label: String, val value: String?, val unit: String, val sub: String?, val color: Color)
+private class ValueSpec(
+    val label: String, val value: String?, val unit: String, val sub: String?, val color: Color,
+    val onClick: (() -> Unit)? = null,   // e.g. Fuel left: log a fill-up
+)
 
 /**
  * The Dash: a main card (speed, gear, RPM with its bar), one alert card, then value cards two per
  * row. Landscape: main + alerts on the left, value cards on the right.
  */
 @Composable
-internal fun DashScreen(s: Snapshot, now: Long) {
+internal fun DashScreen(s: Snapshot, now: Long, actions: Actions) {
     BoxWithConstraints(Modifier.fillMaxSize().background(BG)) {
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -229,7 +232,7 @@ internal fun DashScreen(s: Snapshot, now: Long) {
                     AlertCard(s)
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ValueGrid(s, now)
+                    ValueGrid(s, now, actions)
                 }
             }
         } else {
@@ -239,7 +242,7 @@ internal fun DashScreen(s: Snapshot, now: Long) {
             ) {
                 MainCard(s, now)
                 AlertCard(s)
-                ValueGrid(s, now)
+                ValueGrid(s, now, actions)
             }
         }
     }
@@ -336,7 +339,7 @@ private fun AlertCard(s: Snapshot) {
 }
 
 @Composable
-private fun ValueGrid(s: Snapshot, now: Long) {
+private fun ValueGrid(s: Snapshot, now: Long, actions: Actions) {
     val d = s.derived
     val v = d?.values
     val trend = { label: String -> d?.trends?.get(label)?.let { String.format(Locale.US, "%+.1f °C/min", it) } }
@@ -357,13 +360,13 @@ private fun ValueGrid(s: Snapshot, now: Long) {
         } else {
             ValueSpec("Battery", f(s.fresh(0x42, now), "%.1f"), "V", null, NEON)
         },
-        ValueSpec("Fuel left", f(litres, "%.1f"), "L", fuel?.rangeKm?.let { String.format(Locale.US, "%.0f km range", it) },
+        ValueSpec("Fuel left", f(litres, "%.1f"), "L", fuel?.rangeKm?.let { String.format(Locale.US, "%.0f km range", it) } ?: "tap after filling up",
             when {
                 litres == null -> FAINT
                 litres < 4 -> ALARM
                 litres < 8 -> WARN
                 else -> NEON
-            }),
+            }, onClick = actions.refuel),
         ValueSpec("Consumption", f(fuel?.nowLPer100km, "%.1f"), "L/100", fuel?.tripLPer100km?.let { String.format(Locale.US, "trip %.1f", it) }, NEON),
         ValueSpec("Torque", f(v?.get("Torque"), "%.0f"), "Nm", f(v?.get("Power"), "%.0f bhp"), NEON),
         ValueSpec("Trip", f(v?.get("Trip distance"), "%.1f"), "km", f(v?.get("Trip avg speed"), "avg %.0f km/h"), NEON),
@@ -380,7 +383,7 @@ private fun ValueGrid(s: Snapshot, now: Long) {
 
 @Composable
 private fun ValueCard(spec: ValueSpec, modifier: Modifier) {
-    Card(modifier) {
+    Card(if (spec.onClick != null) modifier.clickable(onClick = spec.onClick) else modifier) {
         Txt(spec.label, 13.sp)
         Row(verticalAlignment = Alignment.Bottom) {
             Txt(spec.value ?: "--", 30.sp, if (spec.value == null) FAINT else spec.color, FontWeight.Bold, mono = true, glow = spec.value != null, maxLines = 1)
@@ -397,7 +400,7 @@ private val driveDay = SimpleDateFormat("EEE d MMM · HH:mm", Locale.UK)
 
 /** The chosen car's drives, newest first, each as a card with its worst verdict; tap for the report. */
 @Composable
-internal fun DrivesScreen(s: Snapshot) {
+internal fun DrivesScreen(s: Snapshot, actions: Actions) {
     val context = LocalContext.current
     val drives by DriveReports.items.collectAsState()
     val changes by DriveSummary.changes.collectAsState()
@@ -407,7 +410,7 @@ internal fun DrivesScreen(s: Snapshot) {
 
     val shown = drives.firstOrNull { it.csv.name == open }
     if (shown != null) {
-        DriveReportScreen(shown) { open = null }
+        DriveReportScreen(shown, actions) { open = null }
         return
     }
     LazyColumn(
@@ -452,7 +455,7 @@ private fun VerdictChip(check: Int, watch: Int) = when {
 
 /** One drive's report: AI summary, verdict, then a card per section (logic/DriveReport). */
 @Composable
-private fun DriveReportScreen(item: DriveItem, back: () -> Unit) {
+private fun DriveReportScreen(item: DriveItem, actions: Actions, back: () -> Unit) {
     val r = item.report ?: return
     val context = LocalContext.current
     val changes by DriveSummary.changes.collectAsState()
@@ -483,6 +486,12 @@ private fun DriveReportScreen(item: DriveItem, back: () -> Unit) {
             }
         }
         item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button("Share", NEON, Modifier.weight(1f)) { actions.shareDrive(item.csv) }
+                Button("Replay", WARN, Modifier.weight(1f)) { actions.replayDrive(item.csv) }
+            }
+        }
+        item {
             Card(Modifier.fillMaxWidth()) {
                 Txt("AI summary", 13.sp, MUTED, FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
@@ -505,6 +514,7 @@ private fun DriveReportScreen(item: DriveItem, back: () -> Unit) {
                 }
             }
         }
+        item { AskCard(item, actions) }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Txt("Verdict", 13.sp, MUTED, FontWeight.SemiBold)
@@ -534,5 +544,49 @@ private fun DriveReportScreen(item: DriveItem, back: () -> Unit) {
             }
         }
         item { Txt("Car Dash ${BuildConfig.VERSION_NAME}", 11.sp, FAINT, modifier = Modifier.padding(6.dp)) }
+    }
+}
+
+/**
+ * Ask about this drive: a question to the on-phone AI with this drive's report (grounded like the
+ * summary); the answer appears here. Show prompt: exactly what the model got.
+ */
+@Composable
+private fun AskCard(item: DriveItem, actions: Actions) {
+    val ai by LocalLlm.state.collectAsState()
+    val lastAsk by DriveSummary.lastAskDrive.collectAsState()
+    var showPrompt by rememberSaveable { mutableStateOf(false) }
+    val mine = lastAsk == item.csv.name && ai.question.isNotEmpty() && ai.question != "Summary of the drive"
+    Card(Modifier.fillMaxWidth()) {
+        Txt("Ask about this drive", 13.sp, MUTED, FontWeight.SemiBold)
+        Txt("e.g. \"Why is the battery a watch?\" or \"Was my fuel use OK?\"", 13.sp, FAINT)
+        Spacer(Modifier.height(8.dp))
+        if (mine && ai.busy) {
+            Button("Stop", WARN, onClick = actions.aiStop)
+        } else {
+            Button("Ask a question", NEON) { actions.askDrive(item.csv.name) }
+        }
+        if (mine) {
+            Spacer(Modifier.height(8.dp))
+            Txt("> ${ai.question}", 14.sp, FAINT)
+            if (ai.answer.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Txt(DriveSummary.plain(ai.answer), 15.sp, NEON)
+            } else if (ai.busy) {
+                Txt(ai.status, 13.sp, WARN)
+            }
+            if (ai.stats.isNotEmpty()) Txt(ai.stats, 12.sp, FAINT)
+            if (!ai.busy && ai.sentPrompt.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Button(if (showPrompt) "Hide prompt" else "Show prompt", MUTED) { showPrompt = !showPrompt }
+                if (showPrompt) {
+                    Spacer(Modifier.height(6.dp))
+                    Txt("SYSTEM INSTRUCTION", 12.sp, MUTED, FontWeight.SemiBold)
+                    Txt(ai.sentSystem, 12.sp, FAINT, mono = true)
+                    Txt("MESSAGE", 12.sp, MUTED, FontWeight.SemiBold)
+                    Txt(ai.sentPrompt, 12.sp, FAINT, mono = true)
+                }
+            }
+        }
     }
 }

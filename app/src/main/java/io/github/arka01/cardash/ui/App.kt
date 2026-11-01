@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.Dash
+import io.github.arka01.cardash.GearLearner
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
 import io.github.arka01.cardash.ai.AiSettings
@@ -53,9 +54,12 @@ import kotlinx.coroutines.delay
  * modern look in the terminal colours (Modern.kt: Dash, Drives; Screens.kt: the rest).
  */
 
-/** The screens, in sidebar order. */
+/**
+ * The screens, in sidebar order, from a new customer's point of view (2026-11-01): driving, live
+ * details, past drives (with the AI), this car, app settings, and support (logs, crash report).
+ */
 private enum class Tab(val title: String) {
-    DASH("Dash"), INFO("Info"), DRIVES("Drives"), ALL("All sensors"), AI("AI"), DEV("Dev tools"),
+    DASH("Dash"), LIVE("Live details"), DRIVES("Drives"), CAR("Car"), SETTINGS("Settings"), SUPPORT("Support"),
 }
 
 /** What the screens can ask the activity to do. */
@@ -64,28 +68,23 @@ class Actions(
     val demo: () -> Unit,
     val stop: () -> Unit,
     val pickAdapter: () -> Unit,
-    val share: () -> Unit,
-    val keyTest: () -> Unit,
-    val shareTest: () -> Unit,
-    val markKey: (String) -> Unit,
-    val shareDrive: () -> Unit,
-    val pickCar: () -> Unit,
-    val chooseCar: (String) -> Unit,   // switch to this car (folder name)
+    val shareLog: () -> Unit,
+    val shareDrive: (java.io.File) -> Unit,   // a drive's CSV (+ profile, report, summary)
+    val replayDrive: (java.io.File) -> Unit,
+    val askDrive: (String) -> Unit,           // type a question about this drive (CSV file name)
+    val chooseCar: (String) -> Unit,          // switch to this car (folder name)
     val newCar: () -> Unit,
-    val probe: () -> Unit,
-    val gears: () -> Unit,
+    val scanCar: () -> Unit,                  // read-only scan of the car's computers
+    val editCar: (String) -> Unit,            // change one car setting: tank, engine, redline, shift
     val refuel: () -> Unit,
-    val replay: () -> Unit,
     val voice: () -> Unit,
     val aiImport: () -> Unit,
     val aiRemove: () -> Unit,
-    val aiAsk: () -> Unit,     // type a question
-    val aiAbout: () -> Unit,   // choose which drive questions are about
     val aiStop: () -> Unit,
-    val aiSetting: (String) -> Unit,   // edit one setting: system, temperature, topK, topP, maxTokens, backend
+    val aiSetting: (String) -> Unit,          // edit one AI setting: system, temperature, topK, topP, maxTokens, backend
     val shareCrash: () -> Unit,
     val clearCrash: () -> Unit,
-    val update: () -> Unit,   // opens Car Dash's Play Store page
+    val update: () -> Unit,                   // opens Car Dash's Play Store page
 )
 
 @Composable
@@ -123,12 +122,12 @@ fun CarDashApp(adapterName: String?, voiceOn: Boolean, aiSettings: AiSettings, a
             TopBar(snap, now, tab.title) { menuOpen = true }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
-                    Tab.DASH -> DashScreen(snap, now)
-                    Tab.INFO -> InfoScreen(snap)
-                    Tab.DRIVES -> DrivesScreen(snap)
-                    Tab.ALL -> AllScreen(snap, now)
-                    Tab.AI -> AiScreen(aiSettings, actions)
-                    Tab.DEV -> DevScreen(snap, adapterName, voiceOn, actions)
+                    Tab.DASH -> DashScreen(snap, now, actions)
+                    Tab.LIVE -> LiveScreen(snap, now, actions)
+                    Tab.DRIVES -> DrivesScreen(snap, actions)
+                    Tab.CAR -> CarScreen(snap, actions)
+                    Tab.SETTINGS -> SettingsScreen(snap, adapterName, voiceOn, aiSettings, actions)
+                    Tab.SUPPORT -> SupportScreen(snap, adapterName, actions)
                 }
             }
         }
@@ -164,7 +163,12 @@ private fun Sidebar(open: Boolean, tab: Tab, s: Snapshot, actions: Actions, clos
                 Spacer(Modifier.height(12.dp))
                 CarSwitcher(s, actions, close)
                 Spacer(Modifier.height(12.dp))
-                for (t in Tab.entries) SideItem(t.title, t == tab) { select(t) }
+                val gears by GearLearner.suggestion.collectAsState()
+                for (t in Tab.entries) {
+                    // A dot on Car while newly learned gears wait for the owner's OK.
+                    val title = if (t == Tab.CAR && gears != null) "${t.title}  ●" else t.title
+                    SideItem(title, t == tab) { select(t) }
+                }
                 Spacer(Modifier.height(16.dp))
                 when (s.mode) {
                     Mode.OFF -> Button("▶  Start LIVE", NEON, Modifier.fillMaxWidth()) { actions.connect(); close() }

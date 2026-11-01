@@ -43,14 +43,9 @@ object DriveSummary {
 
     fun file(csv: File) = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_summary.txt")
 
-    /** What Ask questions are about: [NEWEST] drive (default), [NONE], or a drive's CSV file name. */
-    const val NEWEST = "newest"
-    const val NONE = "none"
-    private val about = MutableStateFlow(NEWEST)
-    val askAbout: StateFlow<String> = about
-    fun setAskAbout(choice: String) {
-        about.value = choice
-    }
+    /** The drive (CSV file name) the last question was about, so its report shows the answer. */
+    private val lastAsk = MutableStateFlow<String?>(null)
+    val lastAskDrive: StateFlow<String?> = lastAsk
 
     private const val SYSTEM_QUESTION = "You are a car mechanic answering the owner's question about one drive " +
         "of their car. Use only the drive report and the notes given. The verdicts (OK, WATCH, CHECK) were decided by " +
@@ -63,14 +58,16 @@ object DriveSummary {
      * "How was my drive?" can be answered (2026-11-01: a plain question had no drive data).
      * Returns why not, or null when started.
      */
-    fun ask(context: Context, question: String, car: CarProfile, report: DriveReport, earlier: List<DriveReport>): String? {
+    fun ask(context: Context, question: String, car: CarProfile, report: DriveReport, earlier: List<DriveReport>, csvName: String): String? {
         val prompt = buildString {
             append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
             append("BACKGROUND, NOT FINDINGS: EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
             append("THE DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append("\n")
             append("QUESTION: ").append(question)
         }
-        return LocalLlm.ask(context, prompt, system = SYSTEM_QUESTION, shown = question)
+        val why = LocalLlm.ask(context, prompt, system = SYSTEM_QUESTION, shown = question)
+        if (why == null) lastAsk.value = csvName
+        return why
     }
 
     fun read(csv: File): Summary? = runCatching {

@@ -89,10 +89,25 @@ object Cars {
     }
 
     /** Writes car.json back with new gear measurements, keeping everything else in it. */
-    fun saveGears(car: CarProfile, rpmPerKmh: List<Double>) {
+    fun saveGears(car: CarProfile, rpmPerKmh: List<Double>, measured: List<Boolean>? = null) {
         val settings = JSONObject(car.settings.toString())
         val gears = settings.optJSONObject("gears") ?: JSONObject().also { settings.put("gears", it) }
         gears.put("rpm_per_kmh", rpmPerKmh.toJson())
+        // Which gears were measured on this car (the others are estimated from the specs).
+        if (measured != null) gears.put("measured", org.json.JSONArray(measured))
+        write(car.key, settings)
+    }
+
+    /** Which saved gears were measured (null: not recorded, e.g. calibrated before build 22). */
+    fun measuredGears(car: CarProfile): List<Boolean>? {
+        val a = car.settings.optJSONObject("gears")?.optJSONArray("measured") ?: return null
+        return (0 until a.length()).map { a.optBoolean(it) }
+    }
+
+    /** Changes one setting in car.json (tank size, redline…), keeping everything else. */
+    fun saveSetting(car: CarProfile, key: String, value: Any) {
+        val settings = JSONObject(car.settings.toString())
+        settings.put(key, value)
         write(car.key, settings)
     }
 

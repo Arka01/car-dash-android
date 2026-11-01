@@ -35,7 +35,7 @@ import io.github.arka01.cardash.ui.CarDashApp
 
 /**
  * Phone screen. The look is in ui/ (App.kt, Modern.kt, Screens.kt); this class handles Bluetooth permission, adapter,
- * sharing and the dialogs (car choice, NEW CAR questions, REFUEL, GEARS, REPLAY, AI).
+ * sharing and the dialogs (NEW CAR questions, fill-up, car settings, questions about a drive, AI settings).
  */
 class MainActivity : ComponentActivity() {
     private var adapterName by mutableStateOf<String?>(null)
@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
         voiceOn = !Speech.muted(this)
         CrashReport.init(this)   // first: catches crashes, and reads why the app closed last time
         LocalLlm.init(this)
+        GearLearner.check(this)   // new gear values from the drives? (shown on the Car screen)
         aiSettings = LocalLlm.settings(this)
         if (Dash.state.value.car == null) Dash.chooseCar(this, Cars.active(this).key)
         val actions = Actions(
@@ -65,32 +66,28 @@ class MainActivity : ComponentActivity() {
             demo = { Dash.startDemo(this) },
             stop = { Dash.stop() },
             pickAdapter = ::pickAdapter,
-            share = ::share,
-            keyTest = ::keyTest,
-            shareTest = ::shareTest,
-            markKey = { Dash.markKey(it) },
+            shareLog = ::share,
             shareDrive = ::shareDrive,
-            pickCar = ::pickCar,
+            replayDrive = { Dash.startReplay(this, it) },
+            askDrive = ::askAboutDrive,
             chooseCar = ::switchCar,
             newCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = true) } },
-            probe = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
-            gears = ::calibrateGears,
+            scanCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
+            editCar = ::editCar,
             refuel = ::refuel,
-            replay = ::replay,
             voice = {
                 voiceOn = !voiceOn
                 Speech.setMuted(this, !voiceOn)
             },
             aiImport = { pickModel.launch(arrayOf("*/*")) },
             aiRemove = ::removeModel,
-            aiAsk = ::askAi,
-            aiAbout = ::chooseAskAbout,
             aiStop = { LocalLlm.stop() },
             aiSetting = ::editAiSetting,
             shareCrash = ::shareCrash,
             clearCrash = { CrashReport.clear(this) },
             update = ::openStore,
         )
+
         setContent {
             val snap by Dash.state.collectAsState()
             // A finished NEW CAR scan of a car not set up yet: ask the questions.
@@ -111,10 +108,6 @@ class MainActivity : ComponentActivity() {
         Dash.startLive(this, adapter)
     }
 
-    private fun keyTest() {
-        val adapter = readyAdapter() ?: return
-        Dash.startKeyTest(this, adapter)
-    }
 
     /** The chosen adapter, or null after asking for the permission / a choice first. */
     private fun readyAdapter(): SavedAdapter? {
@@ -146,6 +139,7 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
+    /** Share log (Support): the readings and the connection log as text. */
     private fun share() {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -155,35 +149,19 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(send, "Share readings"))
     }
 
-    /** Sends the newest KEY TEST file (CSV) as an attachment, e.g. by email. */
-    private fun shareTest() {
-        val file = Dash.latestKeyTest(this)
-        if (file == null) {
-            Toast.makeText(this, "No key test recorded yet", Toast.LENGTH_LONG).show()
-            return
-        }
-        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/csv"
-            putExtra(Intent.EXTRA_SUBJECT, "Car Dash key test ${file.name}")
-            putExtra(Intent.EXTRA_STREAM, uri)
-            clipData = ClipData.newRawUri(file.name, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        startActivity(Intent.createChooser(send, "Share key test"))
-    }
-
-    /** Sends the newest drive recording (CSV + profile JSON) as attachments. */
-    private fun shareDrive() {
-        val files = Dash.latestDrive(this)
+    /** Share (in a drive's report): its recording plus profile, report and AI summary, e.g. by email. */
+    private fun shareDrive(csv: java.io.File) {
+        val base = csv.name.removeSuffix(".csv")
+        val files = listOf(csv.name, "${base}_profile.json", "${base}_report.json", "${base}_summary.txt")
+            .map { java.io.File(csv.parentFile, it) }.filter { it.exists() }
         if (files.isEmpty()) {
-            Toast.makeText(this, "No drive recorded yet", Toast.LENGTH_LONG).show()
+            toast("This drive's files are gone")
             return
         }
         val uris = ArrayList(files.map { FileProvider.getUriForFile(this, "$packageName.files", it) })
         val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
             type = "*/*"
-            putExtra(Intent.EXTRA_SUBJECT, "Car Dash drive ${files.first().name}")
+            putExtra(Intent.EXTRA_SUBJECT, "Car Dash drive ${driveLabel(csv.name)}")
             putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
             clipData = ClipData.newRawUri(files.first().name, uris.first()).also { clip ->
                 uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
@@ -195,7 +173,7 @@ class MainActivity : ComponentActivity() {
 
     // ---------------------------------------------------------------- cars and their tools
 
-    /** Sidebar car switcher: use another car (not while LIVE / a scan / the key test reads a car). */
+    /** Sidebar car switcher: use another car (not while LIVE / a scan reads a car). */
     private fun switchCar(key: String) {
         when (Dash.state.value.mode) {
             Mode.LIVE, Mode.PROBE, Mode.TEST -> toast("Stop first: one recording is for one car")
@@ -206,17 +184,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun pickCar() {
-        val keys = Cars.all()
-        val names = keys.map { key -> Cars.load(key).let { "${it.shortName}  ·  ${it.name}" } }
-        AlertDialog.Builder(this)
-            .setTitle("Which car? (NEW CAR sets up another)")
-            .setItems(names.toTypedArray()) { _, i ->
-                Dash.chooseCar(this, keys[i])
-                if (Dash.isRunning) toast("Used from the next start")
-            }
-            .show()
-    }
 
     /** The NEW CAR questions (new_car_probe.py asks the same); every answer is optional. */
     private fun askNewCar(p: ProbeResult) {
@@ -274,47 +241,61 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    /** GEARS: measure each gear from the car's recorded drives, then offer to save (--calibrate-gears). */
-    private fun calibrateGears() {
-        val car = Cars.active(this)
-        toast("Measuring gears from ${car.shortName}'s drives…")
-        Thread {
-            val result = try {
-                GearCalibration.run(car)
-            } catch (e: Exception) {
-                null
-            }
-            runOnUiThread {
-                if (result == null) {
-                    toast("Gear calibration failed")
-                    return@runOnUiThread
-                }
-                val dialog = AlertDialog.Builder(this)
-                    .setTitle("Gears: ${car.shortName}")
-                    .setMessage(result.lines.joinToString("\n"))
-                    .setNegativeButton(if (result.suggested == null) "OK" else "Don't save", null)
-                result.suggested?.let { gears ->
-                    dialog.setPositiveButton("Save") { _, _ ->
-                        Cars.saveGears(car, gears)
-                        Dash.chooseCar(this, car.key)   // reload its settings
-                        toast("Saved: the gear display now uses them" + if (Dash.isRunning) " (from the next start)" else "")
-                    }
-                }
-                dialog.show()
-            }
-        }.start()
-    }
 
-    /** REPLAY: play a drive of the active car again (the Python --replay). */
-    private fun replay() {
-        val drives = Dash.drives(this)
-        if (drives.isEmpty()) {
-            toast("No drive recorded for ${Cars.active(this).shortName} yet")
-            return
+
+    /** Ask about this drive (Drives): the question goes to the on-phone AI with this drive's report. */
+    private fun askAboutDrive(csvName: String) {
+        val input = EditText(this).apply {
+            hint = "e.g. How was my drive?"
+            minLines = 3
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         }
         AlertDialog.Builder(this)
-            .setTitle("Replay which drive?")
-            .setItems(drives.map { it.name }.toTypedArray()) { _, i -> Dash.startReplay(this, drives[i]) }
+            .setTitle("Ask about this drive")
+            .setView(input)
+            .setPositiveButton("Ask") { _, _ ->
+                val q = input.text.toString().trim()
+                if (q.isEmpty()) return@setPositiveButton
+                val ctx = DriveReports.forQuestion(this, csvName)
+                val why = if (ctx == null) "This drive has no report yet" else DriveSummary.ask(this, q, ctx.first, ctx.second, ctx.third, csvName)
+                why?.let { toast(it) }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Car screen: change tank size, engine size, shift light or red line. */
+    private fun editCar(key: String) {
+        val car = Cars.active(this)
+        val (title, value) = when (key) {
+            "tank_litres" -> "Fuel tank size (litres)" to car.tankLitres?.let { String.format(java.util.Locale.US, "%.0f", it) }
+            "engine_litres" -> "Engine size (litres, e.g. 1.2)" to car.engineLitres?.let { String.format(java.util.Locale.US, "%.1f", it) }
+            "shift_rpm" -> "Shift light from (rpm)" to car.shiftRpm.toString()
+            else -> "Red line, your limit (rpm)" to car.redlineRpm.toString()
+        }
+        val input = EditText(this).apply {
+            setText(value ?: "")
+            inputType = if (key.endsWith("rpm")) InputType.TYPE_CLASS_NUMBER else DECIMAL
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val t = input.text.toString().trim()
+                val ok = when (key) {
+                    "tank_litres" -> t.toDoubleOrNull()?.takeIf { it in 10.0..200.0 }
+                    "engine_litres" -> t.toDoubleOrNull()?.let { if (it > 20) it / 1000 else it }?.takeIf { it in 0.5..10.0 }   // cc -> litres
+                    else -> t.toIntOrNull()?.takeIf { it in 1000..12000 }
+                }
+                if (ok == null) {
+                    toast("Not a sensible value")
+                    return@setPositiveButton
+                }
+                Cars.saveSetting(car, key, ok)
+                Dash.chooseCar(this, car.key)   // reload its settings
+                toast(if (Dash.isRunning) "Saved: used from the next start" else "Saved")
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -353,46 +334,7 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    /**
-     * ASK: type a question; the answer appears on the AI screen. It's about the drive chosen with
-     * "About" (the newest by default): its report goes with the question, so the AI knows the drive.
-     */
-    private fun askAi() {
-        val input = EditText(this).apply {
-            hint = "Type your question, e.g. How was my drive?"
-            minLines = 3
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Ask the on-phone AI")
-            .setView(input)
-            .setPositiveButton("Ask") { _, _ ->
-                val q = input.text.toString().trim()
-                if (q.isEmpty()) return@setPositiveButton
-                val about = DriveSummary.askAbout.value
-                val why = if (about == DriveSummary.NONE) {
-                    LocalLlm.ask(this, q)
-                } else {
-                    val ctx = DriveReports.forQuestion(this, about.takeIf { it != DriveSummary.NEWEST })
-                    if (ctx == null) "No drive report yet: open DRIVES once, or choose About: no drive"
-                    else DriveSummary.ask(this, q, ctx.first, ctx.second, ctx.third)
-                }
-                why?.let { toast(it) }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
 
-    /** About: which drive Ask questions are about (newest, a chosen one, or none). */
-    private fun chooseAskAbout() {
-        val drives = Dash.drives(this).take(20)
-        val labels = listOf("Newest drive", "No drive (general question)") + drives.map { driveLabel(it.name) }
-        val values = listOf(DriveSummary.NEWEST, DriveSummary.NONE) + drives.map { it.name }
-        AlertDialog.Builder(this)
-            .setTitle("Questions are about")
-            .setItems(labels.toTypedArray()) { _, i -> DriveSummary.setAskAbout(values[i]) }
-            .show()
-    }
 
     /** One AI setting: a text box with the current value (backend: a GPU / CPU choice). */
     private fun editAiSetting(key: String) {

@@ -80,7 +80,7 @@ for warnings): cards, readable labels, real buttons, big numbers in monospace wi
 All screens have it since build 20 (Dash and Drives since 19). Buttons that were `[NAME]` keys are
 now real buttons with the same names (e.g. `[DEMO]` → **Demo**). The sidebar shows the **car in use** at
 the top (tap it to switch cars or **+ Add a new car**; not while LIVE runs), then **Dash, Info,
-Drives, All sensors, AI, Dev tools**, then **Start LIVE / Stop** and **Update app**. The top bar shows ☰ (sidebar),
+Live details, Drives, Car, Settings, Support**, then **Start LIVE / Stop** and **Update app**. The top bar shows ☰ (sidebar),
 the screen, the mode (● LIVE / ◆ DEMO / ○ OFF) and the time; below it the car state, car and rate.
 
 **Dash:** a main card (speed, gear, RPM and its bar: green, amber from the shift point or near the
@@ -94,17 +94,18 @@ LIVE / STOP; tap an entry, or tap the dimmed screen or press Back to close it.
 
 | Sidebar entry | What it does |
 |---|---|
-| **[DASH]** | Big speed and gear, RPM and its bar, pedal and throttle bars, temperatures, warnings, then ENGINE / FUEL / AIR / CAR details |
-| **[INFO]** | Everything calculated: car, VIN, trouble codes, engine state, torque/power, fuel left and range, battery, trip (see "INFO tab") |
-| **DRIVES** | Every recorded drive of the chosen car with its **drive report** (see "Drive reports") |
-| **[ALL]** | Every value the engine computer reports (about 50), by PID number |
-| **AI** | The on-phone language model: import the model file, its settings, ask questions (see "On-phone AI") |
-| **DEV** | Car tools (**[CAR] [NEW CAR] [PROBE] [GEARS] [REFUEL] [VOICE]**), **[DEMO] [REPLAY]**, **[ADAPTER]**, the **KEY TEST**, recording, **[SHARE LOG]** and the log |
-| **[LIVE]** | Connect to the car (live data) |
-| **[STOP]** | Stop whatever runs (LIVE, DEMO, REPLAY, TEST, scan) |
+| **Car (top)** | The car in use; tap it to switch cars or **+ Add a new car** |
+| **Dash** | Speed, gear, RPM bar, warnings, value cards; tap **Fuel left** to log a fill-up |
+| **Live details** | Everything calculated (car, VIN, codes, engine, temperature trends, fuel with **Log a fill-up**, battery, trip), then **All sensors** (raw values, folded) |
+| **Drives** | Every recorded drive with its report: AI summary, **Ask about this drive**, **Share**, **Replay** (see "Drive reports") |
+| **Car** | This car: details and VIN, **gears learned automatically**, fuel (tank size, average, fill-ups), engine limits (editable), **Scan car computers** |
+| **Settings** | Connection (choose the adapter), voice on/off, the on-phone AI (model, advanced settings), demo drive, version and updates |
+| **Support** | Connection status, crash report (if the app closed unexpectedly), connection log and **Share log** |
+| **Start LIVE / Stop** | Connect to the car (live data) / stop whatever runs |
+| **Update app** | Opens Car Dash in the Play Store |
 
 **Top line:** `[≡]`, the screen's name, then `● LIVE` (green) = real data from the car, `◆ DEMO` (amber) = the recorded drive,
-`◆ REPLAY` (amber) = a recorded drive of the chosen car, `◇ TEST` (amber) = KEY TEST running,
+`◆ REPLAY` (amber) = a recorded drive of the chosen car, `◇ TEST` (amber) = key test running (no longer reachable),
 `◇ SCAN` (amber) = PROBE / NEW CAR scan, `○ OFF` = nothing running. The second line shows the status, how many rounds per second
 RPM/speed refresh, and `fast` or `slow` reading.
 
@@ -143,7 +144,7 @@ The `>` line under the temperatures lists active warnings.
 | CAT TOO HOT / FUEL TRIM CHECK | catalyst above 900 °C / long-term fuel trim beyond ±20 % |
 
 **GEAR:** worked out from RPM ÷ speed with the car's measured ratios (Tiago:
-149.2 / 78.8 / 51.1 / 37.8 / 29.1 rpm per km/h; `-` = not known yet, run **[GEARS]**). `STOP` = standing (0 km/h), `~` = between
+149.2 / 78.8 / 51.1 / 37.8 / 29.1 rpm per km/h; `-` = not known yet: the app learns them by itself from your drives). `STOP` = standing (0 km/h), `~` = between
 gears (about 0.35 s per gear change). Below 10 km/h, while the AMT's clutch is still closing,
 it shows `1`. Reverse can't be told apart from 1st gear (OBD speed is never negative).
 
@@ -151,13 +152,13 @@ it shows `1`. Reverse can't be told apart from 1st gear (OBD speed is never nega
 other values every 3rd, 10th or 50th round. Up to 6 values are asked for in one question. At
 connect each batch is checked once: a batch whose answer doesn't contain exactly its values is
 read one value at a time instead (`slow`); while driving, a batch that answers garbled 3 times in
-a row does the same. **DEV** shows the result (`fast read: on: …`).
+a row does the same. **Support** shows the result (`Fast reading: on: …`).
 
 ---
 
 ## Test checklist
 
-**At your desk (no car):** **[≡] → DEV → [DEMO]** → the values should move like a real drive: speed, gear
+**At your desk (no car):** **☰ → Settings → Try a demo drive** → the values should move like a real drive: speed, gear
 changes, the RPM bar turning amber/red near 3500/4000. Try portrait and landscape: everything
 on DASH must be visible without scrolling.
 
@@ -165,12 +166,12 @@ on DASH must be visible without scrolling.
 
 1. Close **Car Scanner** first. Only one app can talk to the adapter at a time.
 2. Open **Car Dash** → allow **Nearby devices** (needed for Bluetooth).
-3. **[≡] → DEV → [ADAPTER]:** should show the vLinker. If not, tap it and choose the vLinker.
+3. **☰ → Settings → Connection:** should show the vLinker. If not, tap **Choose adapter**.
 4. **[≡] → LIVE.** The status goes *Connecting… → Setting up adapter… → Finding sensors… →
    Reading all values once… → Testing fast read… → Connected*.
-5. **DEV:** `fast read: on: …` is the goal. The second line on top should show several
+5. **☰ → Support:** `Fast reading: on: …` is the goal. The second line on top should show several
    rounds per second (e.g. `8.0/s`).
-6. **[≡] → DEV → [SHARE LOG]** and send the text. It contains every value plus the connection log.
+6. **☰ → Support → Share log** and send the text. It contains every value plus the connection log.
 
 The AMT computer (7E9) is listed in the log but not read: it refuses direct requests, and its
 9 values only repeat the engine's (no gear).
@@ -208,9 +209,9 @@ With a model imported (see "On-phone AI"), the AI summarises each drive and **re
    car speakers while Android Auto is on, else the phone. Starting the engine again stops it.
 3. If the phone was unplugged first, the summary is written when LIVE stops instead.
 
-The summary is in **DRIVES → the drive → AI SUMMARY** (spoken part, then the longer one).
+The summary is in **Drives → the drive → AI summary** (spoken part, then the longer one).
 **[AI SUMMARY]** / **[WRITE AGAIN]** there writes one for any drive (also older ones) and reads it
-aloud. Voice follows **[VOICE ON/OFF]** (DEV). Saved as `drive_<date>_<time>_summary.txt`.
+aloud. Voice follows **Settings → Voice**. Saved as `drive_<date>_<time>_summary.txt`.
 
 The AI gets the report **with the app's verdicts** (it mustn't judge numbers itself, and only the
 WATCH / CHECK lines of that drive count as findings), short notes
@@ -228,14 +229,13 @@ AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet a
 1. On the phone's browser: `huggingface.co/litert-community/gemma-4-E2B-it-litert-lm` → **Files and
    versions** → `gemma-4-E2B-it.litertlm` (2.59 GB, the standard Android CPU/GPU version; licence
    Apache-2.0, no login needed) → download (Wi-Fi). Not the `-gpu`, `-web`, `.task` or NPU files.
-2. **[≡] → AI → [IMPORT MODEL]** → pick the file in Downloads. Car Dash copies it into its own storage
+2. **☰ → Settings → AI → Import model** → pick the file in Downloads. Car Dash copies it into its own storage
    (about a minute); afterwards the copy in Downloads can be deleted. **[REMOVE]** deletes it again.
 
-**Use:** **Ask** types a question (empty box). It's **about a drive**: **About** (above the buttons)
-chooses the newest drive (default), any drive, or *No drive* for general questions. The chosen
-drive's report, the car notes and earlier drives go with the question, so "How was my drive?" or
-"Why is the battery a WATCH?" work (it only knows what's in that report). With a model imported,
-**Import model** reads **Replace model**. **Show prompt** (under an answer) shows exactly what the
+**Use:** in **Drives → a drive → Ask about this drive**, type a question. That drive's report, the
+car notes and earlier drives go with it, so "How was my drive?" or "Why is the battery a WATCH?"
+work (it only knows what's in that report). With a model imported, **Import model** reads
+**Replace model**; the AI's settings are under **Settings → AI → Advanced settings**. **Show prompt** (under an answer) shows exactly what the
 model got: the system instruction and the whole message (for Ask: car notes, earlier drives, the
 drive report and the question; also for drive summaries). The answer appears word by word, then the time it took.
 The model is loaded when needed (~10 s the first time, ~2–3 GB of memory) and unloaded after
@@ -251,9 +251,9 @@ Settings are under **Model → Advanced settings ▾** (closed by default):
 | runs on | GPU (usually faster) or CPU; falls back to CPU if the GPU fails | GPU |
 | system prompt | Fixed instructions given before every question | "experienced car mechanic…" |
 
-**If the app closes by itself** (crash): reopen Car Dash and go to **[≡] → AI**. A **LAST CRASH** box
+**If the app closes by itself** (crash): reopen Car Dash and go to **☰ → Support**. A **The app closed unexpectedly** box
 shows why Android closed it (native crash, out of memory, …), the last AI step reached and the
-phone's memory; **[SHARE CRASH]** sends the full report as text, **[CLEAR]** hides it. Reports are
+phone's memory; **Share report** sends the full report as text, **Clear** hides it. Reports are
 also kept in the app (`files/dev/crash_<date>_<time>.txt`). Android 11+ needed for the native details.
 
 ---
@@ -265,14 +265,15 @@ dashboard's `cars/` folder: `car.json` (settings), `vin.txt`, `battery_state.jso
 `fuel_state.json`, `probe.json` and `recordings/`. The Tiago and the XUV700 come with the app
 (their `car.json` from the Python project); a `car.json` on the phone is never overwritten.
 
-| Key (DEV tab) | What it does |
+| Where | What it does |
 |---|---|
 | **Car at the top of the sidebar** | Tap it: the cars set up on this phone (tap one to switch; screens, drives and settings follow) and **+ Add a new car**. Not while LIVE runs |
 | **+ Add a new car** (sidebar) | With the adapter in the new car (ignition ON, engine running is best): finds the protocol by itself, reads the VIN (maker from its first 3 characters) and fuel type, scans every computer, then asks name, fuel, tank, engine size and RPM limit (all optional) and sets the car up. A car set up before is recognised by its VIN instead |
-| **[PROBE]** | Read-only scan of every computer of the chosen car (what each supports, gear PID A4, stored and pending trouble codes, names) → `recordings/probe_<date>_<time>.json`, summary in the log |
-| **[GEARS]** | Measures RPM per km/h in each gear from the car's recorded drives and offers to save them (turns the gear display on). Drive through every gear first |
-| **[REFUEL]** | After a fill-up: litres from the receipt, tick **full** if filled to the automatic cut-off. Goes into the running LIVE drive, or into the next one |
-| **[VOICE ON/OFF]** | The warm-up advisor's spoken messages |
+| **Car → Scan car computers** | Read-only scan of every computer of the chosen car (what each supports, gear PID A4, stored and pending trouble codes, names) → `recordings/probe_<date>_<time>.json`, summary in the log |
+| **Car → Gears** (automatic) | After each drive (and when Car opens) the app measures RPM per km/h in each gear from all recorded drives. When it has something new (no gears yet, a gear measured for the first time from 150+ steady readings, or a change over 2 %) **Car** shows **New gears learned** with **Save / Not now**, and the sidebar shows **Car ●**. Unmeasured gears are estimated from the specs |
+| **Car → Fuel / Engine and limits** | Tank size, engine size, shift light and red line can be changed (tap the value). Fuel shows the average consumption and fill-ups learned |
+| **Log a fill-up** (Dash fuel card, Live details, Car) | Litres from the receipt, tick **full** if filled to the automatic cut-off. Goes into the running LIVE drive, or into the next one |
+| **Settings → Voice** | Spoken drive summaries and warm-up tips |
 
 **VIN check at every LIVE connect** (as in the Python dashboard): a car with a saved VIN is
 switched to automatically; the chosen car learns its VIN the first time; a VIN that belongs to
@@ -284,7 +285,7 @@ car is changed or cleared.
 
 ---
 
-## INFO tab
+## Live details
 
 | Part | What it shows |
 |---|---|
@@ -298,7 +299,7 @@ car is changed or cleared.
 (12 % = 0 Nm at idle, 56 % = 100 Nm at full throttle, from the 24 Oct drive), ±10 %.
 
 **Fuel left:** combines the engine's fuel rate, an estimate from the air the engine takes in,
-the tank's float sensor (one-minute median) and fill-up receipts (**[REFUEL]**). The first LIVE
+the tank's float sensor (one-minute median) and fill-up receipts (**Log a fill-up**). The first LIVE
 run starts from the float sensor; the estimate improves after fill-ups to full.
 
 **Battery:** while running: CHARGING / LOW CHARGE / NOT CHARGING / OVERCHARGING. The Tiago has a
@@ -328,8 +329,8 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 - A reconnect during the drive continues the same file. A run that never connected leaves no file.
 - Files are kept per car in `files/cars/<car>/recordings/` (drives from builds 5-6 were moved
   to the Tiago's folder).
-- **[≡] → DEV → [SHARE DRIVE]** sends the chosen car's newest drive (both files), e.g. by email or to Drive.
-- **[≡] → DEV → [REPLAY]** plays one of the chosen car's drives again, with all calculations (nothing is saved).
+- **Drives → a drive → Share** sends that drive (recording, profile, report, AI summary), e.g. by email.
+- **Drives → a drive → Replay** plays it again, with all calculations (nothing is saved).
   About 1 MB per 5 minutes.
 - The screen stays on while LIVE / DEMO / TEST runs: a locked phone may pause the app,
   which would leave gaps in the recording.
@@ -338,21 +339,10 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 
 ---
 
-## KEY TEST (DEV tab)
+## KEY TEST (removed from the app, build 22)
 
-Records, about once a second, what the OBD port shows at each key position, so the app can
-later tell LOCK / ACC / ON / START / RUN apart. Each row: battery voltage at the port
-(3 readings), which car computers answer, the engine's RPM, and how many messages the car's
-network carries (the adapter only listens).
-
-1. Key at **LOCK**, Car Scanner closed. **[≡] → DEV → [START TEST]**, wait for rows to appear.
-2. Tap the position **every time you turn the key**, wait ~20 s at each:
-   **[LOCK]** → **[ACC]** → **[ON]** → **[START]** (tap as you crank) → **[RUN]** (idle ~30 s)
-   → turn the engine off and tap where the key ends up (**[LOCK]** or **[ACC]**), wait ~2 minutes
-   (the engine computer stays awake for a while after the engine stops).
-3. **[STOP TEST]**, then **[SHARE TEST]** to send the CSV file.
-
-Files are kept in the app (`files/dev/keytest_<date>_<time>.csv`); **[SHARE TEST]** sends the newest.
+It recorded what the OBD port shows at each key position (26 Oct 2026); that's how the app tells
+ENGINE ON / IGNITION ON / IGNITION OFF apart. Its button is gone; old files stay in `files/dev/`.
 
 ---
 
@@ -390,7 +380,7 @@ the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid o
   starts by itself when Car Dash opens in the car, and stops when the phone is unplugged, but only
   if the car started it (a LIVE run started on the phone keeps going).
 - It needs two one-time steps on the phone: allow **Nearby devices**, and choose the adapter
-  (**[≡] → DEV → [ADAPTER]**). Until then the Status tile says `Set up on phone`.
+  (**☰ → Settings → Choose adapter**). Until then the Status tile says `Set up on phone`.
 - **Grid of tiles** (since build 10), one value each, scrolls: Status, RPM, Coolant, Oil, Intake air,
   Catalyst, Manifold, Baro, Battery, Speed, Gear, Load, Throttle, Pedal, Fuel rate, Torque, Power,
   Timing, Fuel trim, Fuel left, Range. Android Auto decides the columns and the most tiles allowed
@@ -416,10 +406,10 @@ the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid o
 | *No car computer answered (ignition on?)* | Turn the ignition on, then Stop → Connect |
 | *VIN isn't the TIAGO's or any car set up* | You're in another car: **[NEW CAR]**, or **[CAR]** to choose it |
 | *Protocol N: the app only reads CAN 11-bit cars* | This car uses another OBD protocol (older or 29-bit CAN); not supported by the app yet |
-| Gear shows `-` | The car's gears aren't known: drive through every gear, then **[≡] → DEV → [GEARS]** |
+| Gear shows `-` | The car's gears aren't known: drive through every gear, the app learns them by itself; check **Car** for **New gears learned** |
 | Values show `NO DATA` or `refused` | That computer didn't answer that value this round; share the text |
 | Values are dim | Not updated for 10 s or more (or never answered): the link has stalled |
-| **DEV** says `fast read: off: …` | Batching didn't pass the self-test; values are read one at a time (slower, still correct). Share the log |
+| **Support** says `Fast reading: off: …` | Batching didn't pass the self-test; values are read one at a time (slower, still correct). Share the log |
 
 ---
 
@@ -430,7 +420,8 @@ the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid o
 | `app/src/main/java/.../Dash.kt` | The hub: live, demo or replay data in, the run's car / calculations / recording, one snapshot out to both screens |
 | `app/src/main/java/.../ui/App.kt` | The app frame: top bar, the chosen screen, the sidebar; the Actions the screens can trigger |
 | `app/src/main/java/.../ui/Modern.kt` | The modern look's building blocks (cards, glow numbers, buttons), top bar, Dash, Drives |
-| `app/src/main/java/.../ui/Screens.kt` | Info, All sensors, AI and Dev tools in the modern look |
+| `app/src/main/java/.../ui/Screens.kt` | Live details, Car, Settings and Support |
+| `app/src/main/java/.../GearLearner.kt` | Learns the gears from the drives by itself and offers new values on the Car screen |
 | `app/src/main/java/.../cars/` + `assets/cars/` | Car settings (`car.json`, same format as the Python project), per-car folders, VIN, NEW CAR names |
 | `app/src/main/java/.../logic/` | The Python dashboard's calculations: `Pipeline` (runs them all each round), `Rules` (warning levels), `Calculations` (gear, torque/power, heat soak, boost, hot state), `TripComputer`, `PedalCheck`, `Trends`, `BatteryMonitor`, `FuelTracker`, `WarmUpAdvisor`, `GearCalibration` |
 | `app/src/main/java/.../Speech.kt` | Says the warm-up messages (phone voice) |

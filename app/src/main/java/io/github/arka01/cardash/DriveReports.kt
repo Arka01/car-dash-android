@@ -69,7 +69,10 @@ object DriveReports {
                 // Spoken summary, unless one was already made when the engine was switched off.
                 if (report != null && DriveSummary.read(csv) == null) DriveSummary.start(app, car, csv, report, earlier, speak = true)
             }
-            if (Cars.active(app).key == car.key) refresh(app)
+            if (Cars.active(app).key == car.key) {
+                refresh(app)
+                GearLearner.check(app)   // the drive may have taught the gears something new
+            }
         }
     }
 
