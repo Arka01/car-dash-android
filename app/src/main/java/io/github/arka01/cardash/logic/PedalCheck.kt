@@ -63,6 +63,10 @@ class PedalCheck(private val stateFile: File? = null) {
         out["Pedal sensor mismatch"] = held(abs(posD - posE), now)
     }
 
+    /** True once both sensors' ranges are known (one full press), so nothing extra needs reading. */
+    val rangesKnown: Boolean
+        get() = listOf("D", "E").all { ranges.getValue(it).let { r -> r[1] - r[0] >= MIN_TRAVEL } }
+
     /** Saves the ranges when both are usable and one grew by more than 0.3 points. */
     private fun saveIfGrown() {
         val file = stateFile ?: return

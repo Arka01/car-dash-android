@@ -226,7 +226,9 @@ object ObdSession {
                 // Engine off (but the car answering): only RPM and voltage, for the start dip.
                 val quick = Dash.run?.pipeline?.engineOff() == true && round % 20 != 0
                 if (quick) {
-                    if (quickGroup.pids.isEmpty()) readSingle(0x0C) else readGroup(quickGroup)
+                    // Only what's needed: the pedal sensors ride along until this car's ranges are known.
+                    val pedalsNeeded = Dash.run?.pipeline?.pedalRangesKnown() == false
+                    if (!pedalsNeeded || quickGroup.pids.size < 2) readSingle(0x0C) else readGroup(quickGroup)
                     readAdapterVoltage()
                 } else {
                     for (group in groups) {

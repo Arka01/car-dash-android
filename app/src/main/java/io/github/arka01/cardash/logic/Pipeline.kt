@@ -45,6 +45,9 @@ class Pipeline(val car: CarProfile, live: Boolean, now: Double) {
     /** True while the engine is known to be off: then voltage and RPM are read fast, for the start dip. */
     fun engineOff() = battery.engineOff()
 
+    /** True once this car's pedal sensor ranges are known: with the engine off, only RPM is read then. */
+    fun pedalRangesKnown() = pedals.rangesKnown
+
     /** At the end of a run. */
     fun close() {
         fuel?.save()
