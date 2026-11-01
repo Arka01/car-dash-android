@@ -119,7 +119,10 @@ object Dash {
 
     val isRunning: Boolean get() = ObdSession.isRunning || DemoPlayer.isRunning
 
+    @Volatile private var appContext: Context? = null
+
     private fun begin(context: Context, mode: Mode, car: CarProfile?, live: Boolean, status: String, adapter: String?): Int {
+        appContext = context.applicationContext
         stopSources()
         val gen = ++generation
         run = car?.let { Run(context.applicationContext, it, live) }
@@ -137,6 +140,7 @@ object Dash {
         Cars.init(context)
         val gen = begin(context, Mode.LIVE, Cars.active(context), live = true, "Connecting…", adapter.name)
         ObdSession.start(context, adapter, gen, Task.Live)
+        DriveService.start(context.applicationContext)   // keeps recording with the app in the background
     }
 
     /** DEMO: a real Tiago drive (assets), with the Tiago's settings; nothing is saved. */
@@ -290,6 +294,7 @@ object Dash {
     /** A source finished by itself (probe done, wrong car): back to OFF with a message. */
     fun finished(gen: Int, status: String, probe: ProbeResult? = null) {
         if (gen != generation) return
+        appContext?.let { DriveService.stop(it) }
         run?.close()
         run = null
         update(gen) { it.copy(mode = Mode.OFF, status = status, probe = probe ?: it.probe) }
@@ -374,6 +379,7 @@ object Dash {
     }
 
     private fun stopSources() {
+        appContext?.let { DriveService.stop(it) }
         ObdSession.stop()
         DemoPlayer.stop()
         run?.close()
@@ -388,6 +394,9 @@ object Dash {
     }
 
     private val clock = SimpleDateFormat("HH:mm:ss", Locale.US)
+
+    /** A log line for the run that's going on now. */
+    fun note(line: String) = log(generation, line)
 
     fun log(gen: Int, line: String) = update(gen) {
         it.copy(log = (it.log + "${clock.format(Date())} $line").takeLast(60))

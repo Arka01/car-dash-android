@@ -178,6 +178,17 @@ The AMT computer (7E9) is listed in the log but not read: it refuses direct requ
 
 ---
 
+## Recording in the background
+
+While LIVE runs, Car Dash shows a quiet notification **"Recording your drive"**. Android then
+treats the app as active and doesn't pause or close it when it isn't on screen (phone locked,
+music or maps in front), and the phone's processor keeps reading the car with the screen off.
+The notification goes away when LIVE stops (Stop, or unplugging when Android Auto started it).
+Allow **notifications** when asked (Android 13+), or the recording runs without the notification
+showing. If Android refuses the background recording, the log (Support) says so.
+
+---
+
 ## Drive reports
 
 After every LIVE drive the app works out a report from the recording (no AI; the checks done by
