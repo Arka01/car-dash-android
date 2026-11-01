@@ -24,7 +24,7 @@ class Derived(
  */
 class Pipeline(val car: CarProfile, live: Boolean, now: Double) {
     private val trip = TripComputer(car, now)
-    private val pedals = PedalCheck()
+    private val pedals = PedalCheck(if (live) car.file("pedal_ranges.json") else null)   // ranges kept per car
     private val trends = Trends(HEAT)
     private val advisor = WarmUpAdvisor()
     private val peaks = HashMap<String, Double>()
