@@ -110,7 +110,7 @@ object DriveSummary {
     /**
      * The friendly start of the spoken summary (2026-11-01: it began "very mechanically" with stats):
      * a greeting for the time of day and the drive in one line, e.g. "Good evening! Your drive is
-     * done: 15 minutes and 3.5 kilometres." Made by the app, so it's instant and always right.
+     * complete: 15 minutes and 3.5 kilometres." Made by the app, so it's instant and always right.
      */
     private fun greeting(report: DriveReport): String {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -122,7 +122,7 @@ object DriveSummary {
         }
         val minutes = report.minutes.toInt().coerceAtLeast(1)
         val km = if (report.km >= 10) String.format(Locale.US, "%.0f", report.km) else String.format(Locale.US, "%.1f", report.km)
-        return "$hello Your drive is done: $minutes ${if (minutes == 1) "minute" else "minutes"} and $km kilometres."
+        return "$hello Your drive is complete: $minutes ${if (minutes == 1) "minute" else "minutes"} and $km kilometres."
     }
 
     /** Stops a summary being written (the engine was started again). */
