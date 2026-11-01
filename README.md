@@ -222,6 +222,11 @@ With a model imported (see "On-phone AI"), the AI summarises each drive and **re
 2. Switch the engine off and wait in the car. After **20 s with the ignition off** the app works out the
    drive report, the AI writes the summary (~30 s on CPU) and the short version is spoken: through the
    car speakers while Android Auto is on, else the phone. Starting the engine again stops it.
+   It starts with a greeting made by the app ("Good evening! Your drive is complete: 15 minutes and
+   3.5 kilometres."), then the AI's witty line about the kind of drive (standing still / traffic jam /
+   city / highway / mixed, + spirited; from the report), then the summary. The AI also gets **FUEL NOW**
+   (litres left, range, LOW FUEL yes/no): below **50 km range** (or 8 L if the range isn't known) it
+   reminds the driver to fuel up in its own words.
 3. If the phone was unplugged first, the summary is written when LIVE stops instead.
 
 The summary is in **Drives → the drive → AI summary** (spoken part, then the longer one).
@@ -248,7 +253,7 @@ AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet a
    (about a minute); afterwards the copy in Downloads can be deleted. **[REMOVE]** deletes it again.
 
 **Use:** in **Drives → a drive → Ask about this drive**, type a question. That drive's report, the
-car notes and earlier drives go with it, so "How was my drive?" or "Why is the battery a WATCH?"
+car notes, earlier drives and the fuel left right now ("FUEL NOW") go with it, so "How was my drive?" or "Why is the battery a WATCH?"
 work (it only knows what's in that report). With a model imported, **Import model** reads
 **Replace model**; the AI's settings are under **Settings → AI → Advanced settings**. **Show prompt** (under an answer) shows exactly what the
 model got: the system instruction and the whole message (for Ask: car notes, earlier drives, the

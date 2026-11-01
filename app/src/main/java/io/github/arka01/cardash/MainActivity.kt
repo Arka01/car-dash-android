@@ -258,7 +258,7 @@ class MainActivity : ComponentActivity() {
                 val q = input.text.toString().trim()
                 if (q.isEmpty()) return@setPositiveButton
                 val ctx = DriveReports.forQuestion(this, csvName)
-                val why = if (ctx == null) "This drive has no report yet" else DriveSummary.ask(this, q, ctx.first, ctx.second, ctx.third, csvName)
+                val why = if (ctx == null) "This drive has no report yet" else DriveSummary.ask(this, q, ctx.first, ctx.second, ctx.third, csvName, DriveReports.fuelNow(ctx.first))
                 why?.let { toast(it) }
             }
             .setNegativeButton("Cancel", null)

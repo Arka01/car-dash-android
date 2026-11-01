@@ -5,6 +5,8 @@ import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.cars.Cars
 import io.github.arka01.cardash.logic.DriveReport
+import io.github.arka01.cardash.logic.FuelReport
+import io.github.arka01.cardash.logic.FuelTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,7 +69,7 @@ object DriveReports {
                 val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
                 val report = calculate(csv, car, earlier)
                 // Spoken summary, unless one was already made when the engine was switched off.
-                if (report != null && DriveSummary.read(csv) == null) DriveSummary.start(app, car, csv, report, earlier, speak = true)
+                if (report != null && DriveSummary.read(csv) == null) DriveSummary.start(app, car, csv, report, earlier, fuelNow(car), speak = true)
             }
             if (Cars.active(app).key == car.key) {
                 refresh(app)
@@ -86,7 +88,7 @@ object DriveReports {
             lock.withLock {
                 val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
                 val report = calculate(csv, car, earlier) ?: return@withLock
-                DriveSummary.start(app, car, csv, report, earlier, speak = true)
+                DriveSummary.start(app, car, csv, report, earlier, fuelNow(car), speak = true)
             }
         }
     }
@@ -97,8 +99,20 @@ object DriveReports {
         val car = Cars.active(app)
         val report = load(csv) ?: return "No report for this drive yet"
         val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
-        return DriveSummary.start(app, car, csv, report, earlier, speak = true)
+        return DriveSummary.start(app, car, csv, report, earlier, fuelNow(car), speak = true)
     }
+
+    /**
+     * [car]'s fuel left right now, for the AI (2026-11-01: remind the driver when it's low): from the
+     * LIVE run if it's this car's, else from the car's saved fuel state. Null if unknown.
+     */
+    fun fuelNow(car: CarProfile): FuelReport? = runCatching {
+        val run = Dash.run
+        if (run != null && run.live && run.car.key == car.key) return@runCatching run.pipeline.fuelReport()
+        val file = car.file("fuel_state.json")?.takeIf { it.exists() } ?: return@runCatching null
+        // Read only: the tracker saves just when it's updated or refuelled, which never happens here.
+        FuelTracker(car.tankLitres ?: return@runCatching null, null, car.volumetricEfficiency, file).report()
+    }.getOrNull()?.takeIf { it.litres != null }
 
     /**
      * For a question about a drive: the chosen car, the drive's report and the reports of the drives

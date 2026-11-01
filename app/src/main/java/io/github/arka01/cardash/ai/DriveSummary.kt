@@ -4,6 +4,8 @@ import android.content.Context
 import io.github.arka01.cardash.Speech
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.logic.DriveReport
+import io.github.arka01.cardash.logic.FuelReport
+import io.github.arka01.cardash.logic.Pipeline
 import io.github.arka01.cardash.logic.Verdict
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +26,7 @@ class Summary(val spoken: String, val full: String, val witty: String = "")
  */
 object DriveSummary {
     private const val MAX_TOKENS = 450
+    private const val LOW_RANGE_KM = 50.0   // below this range the AI reminds the driver to fuel up
 
     /** File name of the drive being summarised, or null. */
     private val working = MutableStateFlow<String?>(null)
@@ -39,7 +42,8 @@ object DriveSummary {
         "findings are exactly the WATCH and CHECK lines in its VERDICT, nothing else. Explain them in simple words " +
         "and say what to do. If there are none, say the drive was normal. The car notes and earlier drives are " +
         "only background to explain things: never present anything from them as a finding of this drive. " +
-        "Be brief and calm."
+        "FUEL NOW is the tank right now: if it says LOW FUEL: yes, remind the driver to fuel up soon, in your own " +
+        "friendly words; otherwise don't bring up fuel left. Be brief and calm."
 
     fun file(csv: File) = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_summary.txt")
 
@@ -50,7 +54,8 @@ object DriveSummary {
     private const val SYSTEM_QUESTION = "You are a car mechanic answering the owner's question about one drive " +
         "of their car. Use only the drive report and the notes given. The verdicts (OK, WATCH, CHECK) were decided by " +
         "the app with this car's own rules: trust them and never judge a number yourself; OK means normal. The car " +
-        "notes and earlier drives are background, not findings of this drive. If the report doesn't contain the " +
+        "notes and earlier drives are background, not findings of this drive. FUEL NOW is the tank today, not at " +
+        "the time of the drive. If the report doesn't contain the " +
         "answer, say so. Answer in plain words, briefly."
 
     /**
@@ -58,10 +63,12 @@ object DriveSummary {
      * "How was my drive?" can be answered (2026-11-01: a plain question had no drive data).
      * Returns why not, or null when started.
      */
-    fun ask(context: Context, question: String, car: CarProfile, report: DriveReport, earlier: List<DriveReport>, csvName: String): String? {
+    fun ask(context: Context, question: String, car: CarProfile, report: DriveReport, earlier: List<DriveReport>, csvName: String,
+            fuel: FuelReport?): String? {
         val prompt = buildString {
             append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
             append("BACKGROUND, NOT FINDINGS: EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
+            append(fuelText(fuel)).append("\n")
             append("THE DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append("\n")
             append("QUESTION: ").append(question)
         }
@@ -80,9 +87,11 @@ object DriveSummary {
 
     /**
      * Writes the summary of [report] (drive [csv]) with the on-phone AI, saves it and, if [speak],
-     * reads the short version aloud. Returns why not, or null when started.
+     * reads the short version aloud. [fuel] = the tank right now, so a low tank gets a reminder.
+     * Returns why not, or null when started.
      */
-    fun start(context: Context, car: CarProfile, csv: File, report: DriveReport, earlier: List<DriveReport>, speak: Boolean): String? {
+    fun start(context: Context, car: CarProfile, csv: File, report: DriveReport, earlier: List<DriveReport>, fuel: FuelReport?,
+              speak: Boolean): String? {
         val app = context.applicationContext
         if (!LocalLlm.hasModel(app)) return "No AI model imported (AI screen)"
         val prompt = buildString {
@@ -90,6 +99,7 @@ object DriveSummary {
             append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
             append("BACKGROUND, NOT FINDINGS: EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
             append("THIS DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append('\n')
+            append(fuelText(fuel)).append('\n')
             append("Write exactly three parts:\n")
             append("WITTY: one short, light-hearted, friendly sentence about the kind of drive this was (${report.driveType}), " +
                 "for example about enjoying a highway run or surviving heavy traffic. Never mock the driver. No numbers.\n")
@@ -127,6 +137,25 @@ object DriveSummary {
         val minutes = report.minutes.toInt().coerceAtLeast(1)
         val km = if (report.km >= 10) String.format(Locale.US, "%.0f", report.km) else String.format(Locale.US, "%.1f", report.km)
         return "$hello Your drive is complete: $minutes ${if (minutes == 1) "minute" else "minutes"} and $km kilometres."
+    }
+
+    /**
+     * The tank right now, for the AI. Whether it's low is decided here, not by the model: under
+     * [LOW_RANGE_KM] of range (owner's choice, 2026-11-01), or under 8 litres while the range isn't known.
+     */
+    private fun fuelText(fuel: FuelReport?): String = buildString {
+        append("FUEL NOW\n")
+        val litres = fuel?.litres
+        if (fuel == null || litres == null) {
+            append("  not known\n  LOW FUEL: unknown\n")
+            return@buildString
+        }
+        append(String.format(Locale.US, "  about %.0f litres left of %.0f (%.0f %%)", litres, fuel.tank, litres / fuel.tank * 100))
+        fuel.sigma?.let { append(String.format(Locale.US, ", give or take %.0f", maxOf(it, 1.0))) }
+        append('\n')
+        fuel.rangeKm?.let { append(String.format(Locale.US, "  range about %.0f km\n", it)) }
+        val low = fuel.rangeKm?.let { it < LOW_RANGE_KM } ?: (litres < Pipeline.FUEL_LOW)
+        append("  LOW FUEL: ").append(if (low) "yes" else "no").append('\n')
     }
 
     /** A ready-made witty line for the kind of drive, if the AI didn't write one. */
