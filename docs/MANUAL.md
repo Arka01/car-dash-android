@@ -93,7 +93,7 @@ Scroll down for the full picture:
 | **Temperature trends** | How fast coolant, oil, intake air and catalyst temperatures are changing, per minute |
 | **Fuel** | Litres left (with accuracy), range, consumption now / this trip / average, fuel flow, the tank sensor reading, and **Log a fill-up** |
 | **Battery** | Charging state and voltage, the voltage at the last engine start, and a check that the two voltage readings agree |
-| **Trip** | Distance, average speed, acceleration, best 0–60 and 0–100 km/h times, top speed and RPM, and the **pedal sensor check**: your accelerator has two sensors that must agree. Press the pedal fully **once** (engine running or not); the app remembers each sensor's range for this car and checks them on every drive after that |
+| **Trip** | Distance, average speed, acceleration, best 0–60 and 0–100 km/h times, top speed and RPM, and the **pedal sensor check**: your accelerator has two sensors that must agree. Press the pedal fully **once**, with the ignition on (engine running or not); the app remembers each sensor's range for this car and checks them on every drive after that |
 | **All sensors** (folded) | Every raw value your car's engine computer reports, as it reports it |
 
 ---

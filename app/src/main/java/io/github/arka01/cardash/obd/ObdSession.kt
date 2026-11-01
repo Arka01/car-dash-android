@@ -209,6 +209,10 @@ object ObdSession {
             // 2. Groups by how often they're read; self-test the batches.
             val groups = buildGroups(pids)
             selfTest(groups, singleMs)
+            // Engine off: RPM (for the start dip) and the two pedal sensors in one question, so a full
+            // pedal press is caught with the engine off too (2026-11-01: it was read only every ~2 s).
+            val quickPids = listOf(0x0C, 0x49, 0x4A).filter { it in sizes }
+            val quickGroup = Group(quickPids, 1, 0).also { it.batched = quickPids.size > 1 && fastOn(groups) }
             Dash.run?.recorder?.saveProfile(device.name, protocolName, vin, codes, modules, Dash.state.value.fastRead, readings)
 
             // 3. The reading loop.
@@ -222,7 +226,7 @@ object ObdSession {
                 // Engine off (but the car answering): only RPM and voltage, for the start dip.
                 val quick = Dash.run?.pipeline?.engineOff() == true && round % 20 != 0
                 if (quick) {
-                    readSingle(0x0C)
+                    if (quickGroup.pids.isEmpty()) readSingle(0x0C) else readGroup(quickGroup)
                     readAdapterVoltage()
                 } else {
                     for (group in groups) {
@@ -519,6 +523,9 @@ object ObdSession {
             if (group.frames == 0) group.frames = answer.count { it.replace(" ", "").startsWith(ENGINE) }
             return values
         }
+
+        /** True if fast reading (several values per question) passed its self-test for some group. */
+        private fun fastOn(groups: List<Group>) = groups.any { it.batched && it.pids.size > 1 }
 
         private fun buildGroups(pids: List<Int>): List<Group> {
             val groups = mutableListOf<Group>()
