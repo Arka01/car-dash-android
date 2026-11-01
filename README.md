@@ -241,6 +241,8 @@ drive report and the question; also for drive summaries). The answer appears wor
 The model is loaded when needed (~10 s the first time, ~2–3 GB of memory) and unloaded after
 3 minutes without questions. It doesn't run while LIVE reading runs.
 
+Settings are under **Model → Advanced settings ▾** (closed by default):
+
 | Setting | What it does | Default |
 |---|---|---|
 | temperature | 0 = factual and repeatable … 1+ = more varied | 0.30 |

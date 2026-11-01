@@ -244,6 +244,7 @@ internal fun AiScreen(settings: AiSettings, actions: Actions) {
     val crash by CrashReport.report.collectAsState()
     val about by DriveSummary.askAbout.collectAsState()
     var showPrompt by rememberSaveable { mutableStateOf(false) }
+    var advanced by rememberSaveable { mutableStateOf(false) }   // settings folded away for most people
     val hasModel = ai.modelName != null
     CardList {
         crash?.let { report ->
@@ -265,17 +266,24 @@ internal fun AiScreen(settings: AiSettings, actions: Actions) {
                     b(if (hasModel) "Replace model" else "Import model", if (ai.busy) FAINT else NEON, actions.aiImport),
                     b("Remove", if (hasModel && !ai.busy) WARN else FAINT, actions.aiRemove),
                 )
-            }
-        }
-        item {
-            Titled("Settings (tap to change)") {
-                Setting("Temperature", String.format(Locale.US, "%.2f", settings.temperature)) { actions.aiSetting("temperature") }
-                Setting("Top-K", settings.topK.toString()) { actions.aiSetting("topK") }
-                Setting("Top-P", String.format(Locale.US, "%.2f", settings.topP)) { actions.aiSetting("topP") }
-                Setting("Max answer", "${settings.maxTokens} tokens") { actions.aiSetting("maxTokens") }
-                Setting("Runs on", if (settings.gpu) "GPU" else "CPU") { actions.aiSetting("backend") }
-                Setting("System prompt", "Edit") { actions.aiSetting("system") }
-                Txt(settings.systemPrompt, 13.sp, FAINT)
+                // Inference settings: for people who know what they do; closed by default.
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().clickable { advanced = !advanced }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Txt("Advanced settings", 15.sp, MUTED, modifier = Modifier.weight(1f))
+                    Txt(if (advanced) "▴" else "▾", 16.sp, MUTED)
+                }
+                if (advanced) {
+                    Setting("Temperature", String.format(Locale.US, "%.2f", settings.temperature)) { actions.aiSetting("temperature") }
+                    Setting("Top-K", settings.topK.toString()) { actions.aiSetting("topK") }
+                    Setting("Top-P", String.format(Locale.US, "%.2f", settings.topP)) { actions.aiSetting("topP") }
+                    Setting("Max answer", "${settings.maxTokens} tokens") { actions.aiSetting("maxTokens") }
+                    Setting("Runs on", if (settings.gpu) "GPU" else "CPU") { actions.aiSetting("backend") }
+                    Setting("System prompt", "Edit") { actions.aiSetting("system") }
+                    Txt(settings.systemPrompt, 13.sp, FAINT)
+                }
             }
         }
         item {
