@@ -13,7 +13,6 @@ import kotlin.math.abs
  * positions must agree. A mismatch has to last [HOLD] seconds, because the two are read a few
  * ms apart and can briefly differ while the pedal is moving. Also stands in for the relative
  * pedal reading (PID 5A) if that ever stops answering.
- */
  *
  * The ranges are remembered per car in [stateFile] (pedal_ranges.json in the car's folder), so the
  * owner presses the pedal fully once ever, not once per drive (2026-11-01: it kept asking). They only
