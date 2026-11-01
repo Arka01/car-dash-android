@@ -103,7 +103,8 @@ object DriveSummary {
             append("Write exactly three parts:\n")
             append("WITTY: one short, light-hearted, friendly sentence about the kind of drive this was (${report.driveType}), " +
                 "for example about enjoying a highway run or surviving heavy traffic. Never mock the driver. No numbers.\n")
-            append("SPOKEN: 2 to 4 short sentences to read aloud to the driver. Plain words, at most two numbers, no lists, no symbols.\n")
+            append("SPOKEN: 2 to 4 short sentences to read aloud to the driver. Plain words, at most two numbers, no lists, no symbols. " +
+                "End with a short, warm goodbye in your own words that fits the ${partOfDay()}, different each time.\n")
             append("FULL: a short summary of up to 8 lines, with the reasons.")
         }
         working.value = csv.name
@@ -127,11 +128,10 @@ object DriveSummary {
      * complete: 15 minutes and 3.5 kilometres." Made by the app, so it's instant and always right.
      */
     private fun greeting(report: DriveReport): String {
-        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val hello = when (hour) {
-            in 5..11 -> "Good morning!"
-            in 12..16 -> "Good afternoon!"
-            in 17..21 -> "Good evening!"
+        val hello = when (partOfDay()) {
+            "morning" -> "Good morning!"
+            "afternoon" -> "Good afternoon!"
+            "evening" -> "Good evening!"
             else -> "Hello!"
         }
         val minutes = report.minutes.toInt().coerceAtLeast(1)
@@ -156,6 +156,14 @@ object DriveSummary {
         fuel.rangeKm?.let { append(String.format(Locale.US, "  range about %.0f km\n", it)) }
         val low = fuel.rangeKm?.let { it < LOW_RANGE_KM } ?: (litres < Pipeline.FUEL_LOW)
         append("  LOW FUEL: ").append(if (low) "yes" else "no").append('\n')
+    }
+
+    /** "morning", "afternoon", "evening" or "night", for the greeting and the AI's goodbye. */
+    private fun partOfDay(): String = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+        in 5..11 -> "morning"
+        in 12..16 -> "afternoon"
+        in 17..21 -> "evening"
+        else -> "night"
     }
 
     /** A ready-made witty line for the kind of drive, if the AI didn't write one. */

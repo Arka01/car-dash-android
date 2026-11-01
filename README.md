@@ -226,7 +226,8 @@ With a model imported (see "On-phone AI"), the AI summarises each drive and **re
    3.5 kilometres."), then the AI's witty line about the kind of drive (standing still / traffic jam /
    city / highway / mixed, + spirited; from the report), then the summary. The AI also gets **FUEL NOW**
    (litres left, range, LOW FUEL yes/no): below **50 km range** (or 8 L if the range isn't known) it
-   reminds the driver to fuel up in its own words.
+   reminds the driver to fuel up in its own words. The spoken part ends with the AI's own goodbye,
+   fitting the time of day (morning / afternoon / evening / night).
 3. If the phone was unplugged first, the summary is written when LIVE stops instead.
 
 The summary is in **Drives → the drive → AI summary** (spoken part, then the longer one).
