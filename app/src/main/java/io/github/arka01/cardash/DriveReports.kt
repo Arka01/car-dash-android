@@ -97,6 +97,21 @@ object DriveReports {
         return DriveSummary.start(app, car, csv, report, earlier, speak = true)
     }
 
+    /**
+     * For a question about a drive: the chosen car, the drive's report and the reports of the drives
+     * before it. [csvName] null = the newest drive that has a report. Null if there's none.
+     */
+    fun forQuestion(context: Context, csvName: String?): Triple<CarProfile, DriveReport, List<DriveReport>>? {
+        val app = context.applicationContext
+        Cars.init(app)
+        val drives = Dash.drives(app)
+        val csv = if (csvName == null) drives.firstOrNull { load(it) != null } else drives.firstOrNull { it.name == csvName }
+        csv ?: return null
+        val report = load(csv) ?: return null
+        val earlier = drives.filter { it.name < csv.name }.mapNotNull { load(it) }
+        return Triple(Cars.active(app), report, earlier)
+    }
+
     private fun load(csv: File): DriveReport? = runCatching {
         reportFile(csv).takeIf { it.exists() }?.let { DriveReport.fromJson(JSONObject(it.readText())) }
     }.getOrNull()

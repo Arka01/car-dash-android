@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import io.github.arka01.cardash.ai.AiSettings
+import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.ai.LocalLlm
 import io.github.arka01.cardash.cars.Cars
 import io.github.arka01.cardash.logic.GearCalibration
@@ -82,6 +83,7 @@ class MainActivity : ComponentActivity() {
             aiImport = { pickModel.launch(arrayOf("*/*")) },
             aiRemove = ::removeModel,
             aiAsk = ::askAi,
+            aiAbout = ::chooseAskAbout,
             aiTest = { LocalLlm.ask(this, LocalLlm.TEST_QUESTION)?.let { toast(it) } },
             aiStop = { LocalLlm.stop() },
             aiSetting = ::editAiSetting,
@@ -340,21 +342,44 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    /** ASK: type a question; the answer appears on the AI screen. */
+    /**
+     * ASK: type a question; the answer appears on the AI screen. It's about the drive chosen with
+     * "About" (the newest by default): its report goes with the question, so the AI knows the drive.
+     */
     private fun askAi() {
         val input = EditText(this).apply {
-            setText(LocalLlm.state.value.question)
+            hint = "Type your question, e.g. How was my drive?"
             minLines = 3
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         }
         AlertDialog.Builder(this)
             .setTitle("Ask the on-phone AI")
             .setView(input)
             .setPositiveButton("Ask") { _, _ ->
                 val q = input.text.toString().trim()
-                if (q.isNotEmpty()) LocalLlm.ask(this, q)?.let { toast(it) }
+                if (q.isEmpty()) return@setPositiveButton
+                val about = DriveSummary.askAbout.value
+                val why = if (about == DriveSummary.NONE) {
+                    LocalLlm.ask(this, q)
+                } else {
+                    val ctx = DriveReports.forQuestion(this, about.takeIf { it != DriveSummary.NEWEST })
+                    if (ctx == null) "No drive report yet: open DRIVES once, or choose About: no drive"
+                    else DriveSummary.ask(this, q, ctx.first, ctx.second, ctx.third)
+                }
+                why?.let { toast(it) }
             }
             .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** About: which drive Ask questions are about (newest, a chosen one, or none). */
+    private fun chooseAskAbout() {
+        val drives = Dash.drives(this).take(20)
+        val labels = listOf("Newest drive", "No drive (general question)") + drives.map { driveLabel(it.name) }
+        val values = listOf(DriveSummary.NEWEST, DriveSummary.NONE) + drives.map { it.name }
+        AlertDialog.Builder(this)
+            .setTitle("Questions are about")
+            .setItems(labels.toTypedArray()) { _, i -> DriveSummary.setAskAbout(values[i]) }
             .show()
     }
 
@@ -410,3 +435,10 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val DECIMAL = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+
+/** "drive_20261031_191520.csv" -> "Sat 31 Oct · 19:15". */
+fun driveLabel(fileName: String): String = runCatching {
+    val stamp = fileName.removePrefix("drive_").removeSuffix(".csv")
+    val date = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).parse(stamp)!!
+    java.text.SimpleDateFormat("EEE d MMM · HH:mm", java.util.Locale.UK).format(date)
+}.getOrDefault(fileName)

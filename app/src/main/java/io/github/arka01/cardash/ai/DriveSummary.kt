@@ -43,6 +43,36 @@ object DriveSummary {
 
     fun file(csv: File) = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_summary.txt")
 
+    /** What Ask questions are about: [NEWEST] drive (default), [NONE], or a drive's CSV file name. */
+    const val NEWEST = "newest"
+    const val NONE = "none"
+    private val about = MutableStateFlow(NEWEST)
+    val askAbout: StateFlow<String> = about
+    fun setAskAbout(choice: String) {
+        about.value = choice
+    }
+
+    private const val SYSTEM_QUESTION = "You are a car mechanic answering the owner's question about one drive " +
+        "of their car. Use only the drive report and the notes given. The verdicts (OK, WATCH, CHECK) were decided by " +
+        "the app with this car's own rules: trust them and never judge a number yourself; OK means normal. The car " +
+        "notes and earlier drives are background, not findings of this drive. If the report doesn't contain the " +
+        "answer, say so. Answer in plain words, briefly."
+
+    /**
+     * Ask: [question] with the chosen drive's report as context (grounded like the summary), so
+     * "How was my drive?" can be answered (2026-11-01: a plain question had no drive data).
+     * Returns why not, or null when started.
+     */
+    fun ask(context: Context, question: String, car: CarProfile, report: DriveReport, earlier: List<DriveReport>): String? {
+        val prompt = buildString {
+            append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
+            append("BACKGROUND, NOT FINDINGS: EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
+            append("THE DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append("\n")
+            append("QUESTION: ").append(question)
+        }
+        return LocalLlm.ask(context, prompt, system = SYSTEM_QUESTION, shown = question)
+    }
+
     fun read(csv: File): Summary? = runCatching {
         val text = file(csv).takeIf { it.exists() }?.readText() ?: return null
         val spoken = text.substringAfter("SPOKEN:\n", "").substringBefore("\n\nFULL:\n").trim()
@@ -67,7 +97,7 @@ object DriveSummary {
             append("FULL: a short summary of up to 8 lines, with the reasons.")
         }
         working.value = csv.name
-        val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = MAX_TOKENS, allowLive = true) { answer ->
+        val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = MAX_TOKENS, allowLive = true, shown = "Summary of the drive") { answer ->
             if (answer != null) {
                 val summary = parse(answer)
                 runCatching { file(csv).writeText("SPOKEN:\n${summary.spoken}\n\nFULL:\n${summary.full}\n") }

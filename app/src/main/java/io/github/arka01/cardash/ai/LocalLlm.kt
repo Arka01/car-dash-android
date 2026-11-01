@@ -239,6 +239,7 @@ object LocalLlm {
         system: String? = null,
         maxTokens: Int? = null,
         allowLive: Boolean = false,
+        shown: String? = null,   // what the AI screen shows as the question (default: [question])
         onDone: ((String?) -> Unit)? = null,
     ): String? {
         val app = context.applicationContext
@@ -248,7 +249,7 @@ object LocalLlm {
         if (!allowLive && Dash.state.value.mode == Mode.LIVE) return "Not while LIVE: stop reading first"
         val saved = settings(app)
         val s = saved.copy(systemPrompt = system ?: saved.systemPrompt, maxTokens = maxTokens ?: saved.maxTokens)
-        store.update { it.copy(busy = true, question = question, answer = "", stats = "") }
+        store.update { it.copy(busy = true, question = shown ?: question, answer = "", stats = "") }
         CrashReport.step(String.format(Locale.US, "ask: %s, model %s (%.2f GB), temp %.2f, topK %d, topP %.2f, max %d, question %d chars",
             if (s.gpu) "GPU" else "CPU", model.name, model.length() / 1e9, s.temperature, s.topK, s.topP, s.maxTokens, question.length), first = true)
         job = scope.launch {

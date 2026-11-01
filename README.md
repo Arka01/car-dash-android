@@ -87,7 +87,8 @@ cold-engine limit, red above the redline), one alert card (✓ All normal, or th
 value cards two per row: coolant (warm-up stage while cold), oil, intake air (trend per minute),
 battery (monitor state), fuel left (range), consumption now (trip), torque (power), trip (average).
 Landscape: main + alerts left, value cards right.
-The app opens on **DASH**. Tap **[≡]** (top-left) to open the **sidebar** with the screens and
+The app opens on **Dash**. **Back** (button or swipe) returns to the previous screen (a drive's report
+→ the drive list, an open sidebar closes first); on Dash with nothing before, it closes the app. Tap **[≡]** (top-left) to open the **sidebar** with the screens and
 LIVE / STOP; tap an entry, or tap the dimmed screen or press Back to close it.
 
 | Sidebar entry | What it does |
@@ -229,8 +230,12 @@ AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet a
 2. **[≡] → AI → [IMPORT MODEL]** → pick the file in Downloads. Car Dash copies it into its own storage
    (about a minute); afterwards the copy in Downloads can be deleted. **[REMOVE]** deletes it again.
 
-**Use:** **[ASK]** types a question; **[TEST DRIVE]** asks about the 30 Oct 2026 drive (the same text
-tried in the Gallery app, to compare). The answer appears word by word, then the time it took.
+**Use:** **Ask** types a question (empty box). It's **about a drive**: **About** (above the buttons)
+chooses the newest drive (default), any drive, or *No drive* for general questions. The chosen
+drive's report, the car notes and earlier drives go with the question, so "How was my drive?" or
+"Why is the battery a WATCH?" work (it only knows what's in that report). **Test drive** asks about
+the 30 Oct 2026 drive (the same text tried in the Gallery app, to compare). With a model imported,
+**Import model** reads **Replace model**. The answer appears word by word, then the time it took.
 The model is loaded when needed (~10 s the first time, ~2–3 GB of memory) and unloaded after
 3 minutes without questions. It doesn't run while LIVE reading runs.
 

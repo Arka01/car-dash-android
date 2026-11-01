@@ -78,6 +78,7 @@ class Actions(
     val aiImport: () -> Unit,
     val aiRemove: () -> Unit,
     val aiAsk: () -> Unit,     // type a question
+    val aiAbout: () -> Unit,   // choose which drive questions are about
     val aiTest: () -> Unit,    // the 30 Oct drive test question
     val aiStop: () -> Unit,
     val aiSetting: (String) -> Unit,   // edit one setting: system, temperature, topK, topP, maxTokens, backend
@@ -91,7 +92,16 @@ fun CarDashApp(adapterName: String?, voiceOn: Boolean, aiSettings: AiSettings, a
     val snap by Dash.state.collectAsState()
     var tab by rememberSaveable { mutableStateOf(Tab.DASH) }   // Dash when the app opens
     var menuOpen by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = menuOpen) { menuOpen = false }   // Back closes the sidebar first
+    // Screens opened before, for Back (names, so it survives screen rotation).
+    var history by rememberSaveable { mutableStateOf("") }
+    val previous = history.split(",").filter { it.isNotEmpty() }
+    // Back (button or swipe): the previous screen; on Dash with nothing before, Android closes the app.
+    // Handlers composed later win: a drive's report (Drives) and the open sidebar come first.
+    BackHandler(enabled = previous.isNotEmpty() || tab != Tab.DASH) {
+        val back = previous.lastOrNull()?.let { name -> Tab.entries.firstOrNull { it.name == name } } ?: Tab.DASH
+        history = previous.dropLast(1).joinToString(",")
+        tab = back
+    }
     val now by produceState(System.currentTimeMillis()) {
         while (true) {
             value = System.currentTimeMillis()
@@ -122,9 +132,11 @@ fun CarDashApp(adapterName: String?, voiceOn: Boolean, aiSettings: AiSettings, a
             }
         }
         Sidebar(menuOpen, tab, snap, actions, close = { menuOpen = false }) {
+            if (it != tab) history = (previous + tab.name).takeLast(10).joinToString(",")
             tab = it
             menuOpen = false
         }
+        BackHandler(enabled = menuOpen) { menuOpen = false }   // Back closes the sidebar first
     }
 }
 

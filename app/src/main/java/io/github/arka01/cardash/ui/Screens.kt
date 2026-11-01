@@ -32,6 +32,7 @@ import io.github.arka01.cardash.Snapshot
 import io.github.arka01.cardash.ai.AiSettings
 import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.ai.LocalLlm
+import io.github.arka01.cardash.driveLabel
 import io.github.arka01.cardash.logic.Rules
 import java.util.Locale
 
@@ -238,6 +239,7 @@ internal fun AllScreen(s: Snapshot, now: Long) {
 internal fun AiScreen(settings: AiSettings, actions: Actions) {
     val ai by LocalLlm.state.collectAsState()
     val crash by CrashReport.report.collectAsState()
+    val about by DriveSummary.askAbout.collectAsState()
     val hasModel = ai.modelName != null
     CardList {
         crash?.let { report ->
@@ -255,7 +257,8 @@ internal fun AiScreen(settings: AiSettings, actions: Actions) {
                 if (hasModel) Txt(String.format(Locale.US, "%.2f GB", ai.modelBytes / 1e9), 13.sp, FAINT, mono = true)
                 Txt(ai.status, 13.sp, if (ai.status.startsWith("failed") || ai.status.startsWith("import failed")) ALARM else MUTED)
                 Buttons(
-                    b("Import model", if (ai.busy) FAINT else NEON, actions.aiImport),
+                    // With a model there, importing another one replaces it.
+                    b(if (hasModel) "Replace model" else "Import model", if (ai.busy) FAINT else NEON, actions.aiImport),
                     b("Remove", if (hasModel && !ai.busy) WARN else FAINT, actions.aiRemove),
                 )
             }
@@ -273,6 +276,12 @@ internal fun AiScreen(settings: AiSettings, actions: Actions) {
         }
         item {
             Titled("Ask") {
+                // Which drive's report goes with the question (the AI only knows what it's given).
+                Setting("About", when (about) {
+                    DriveSummary.NEWEST -> "Newest drive"
+                    DriveSummary.NONE -> "No drive"
+                    else -> driveLabel(about)
+                }) { actions.aiAbout() }
                 if (ai.busy) {
                     Buttons(b("Stop", WARN, actions.aiStop))
                 } else {
@@ -280,7 +289,7 @@ internal fun AiScreen(settings: AiSettings, actions: Actions) {
                 }
                 if (ai.question.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    Txt("> " + ai.question.lineSequence().first().take(120), 13.sp, FAINT)
+                    Txt("> " + ai.question.take(400), 13.sp, FAINT)
                 }
                 if (ai.answer.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
