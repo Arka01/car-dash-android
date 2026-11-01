@@ -17,6 +17,11 @@ can't be shown yet (see "Android Auto" below).
 
 ---
 
+**User manual (for customers):** [`docs/MANUAL.md`](docs/MANUAL.md), PDF: [`docs/Car-Dash-Manual.pdf`](docs/Car-Dash-Manual.pdf)
+(rebuild the PDF with `python docs/make_pdf.py docs/MANUAL.md docs/Car-Dash-Manual.pdf`).
+
+---
+
 ## How a new version reaches the phone
 
 ```
