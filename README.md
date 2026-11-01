@@ -78,7 +78,8 @@ cat ~/car-dash-signing/SIGNING_PASSWORD.txt; echo
 **Look (since build 19):** a modern layout in the terminal colours (green on black, amber / red
 for warnings): cards, readable labels, real buttons, big numbers in monospace with a subtle glow.
 All screens have it since build 20 (Dash and Drives since 19). Buttons that were `[NAME]` keys are
-now real buttons with the same names (e.g. `[DEMO]` → **Demo**). The sidebar lists **Dash, Info,
+now real buttons with the same names (e.g. `[DEMO]` → **Demo**). The sidebar shows the **car in use** at
+the top (tap it to switch cars or **+ Add a new car**; not while LIVE runs), then **Dash, Info,
 Drives, All sensors, AI, Dev tools**, then **Start LIVE / Stop** and **Update app**. The top bar shows ☰ (sidebar),
 the screen, the mode (● LIVE / ◆ DEMO / ○ OFF) and the time; below it the car state, car and rate.
 
@@ -265,8 +266,8 @@ dashboard's `cars/` folder: `car.json` (settings), `vin.txt`, `battery_state.jso
 
 | Key (DEV tab) | What it does |
 |---|---|
-| **[CAR]** | Choose the car whose settings and folder are used |
-| **[NEW CAR]** | With the adapter in the new car (ignition ON, engine running is best): finds the protocol by itself, reads the VIN (maker from its first 3 characters) and fuel type, scans every computer, then asks name, fuel, tank, engine size and RPM limit (all optional) and sets the car up. A car set up before is recognised by its VIN instead |
+| **Car at the top of the sidebar** | Tap it: the cars set up on this phone (tap one to switch; screens, drives and settings follow) and **+ Add a new car**. Not while LIVE runs |
+| **+ Add a new car** (sidebar) | With the adapter in the new car (ignition ON, engine running is best): finds the protocol by itself, reads the VIN (maker from its first 3 characters) and fuel type, scans every computer, then asks name, fuel, tank, engine size and RPM limit (all optional) and sets the car up. A car set up before is recognised by its VIN instead |
 | **[PROBE]** | Read-only scan of every computer of the chosen car (what each supports, gear PID A4, stored and pending trouble codes, names) → `recordings/probe_<date>_<time>.json`, summary in the log |
 | **[GEARS]** | Measures RPM per km/h in each gear from the car's recorded drives and offers to save them (turns the gear display on). Drive through every gear first |
 | **[REFUEL]** | After a fill-up: litres from the receipt, tick **full** if filled to the automatic cut-off. Goes into the running LIVE drive, or into the next one |

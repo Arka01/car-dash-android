@@ -342,8 +342,8 @@ internal fun DevScreen(s: Snapshot, adapterName: String?, voiceOn: Boolean, acti
             Titled("Car") {
                 Txt(s.car?.name ?: "No car chosen", 16.sp, NEON, FontWeight.SemiBold)
                 s.car?.let { Txt(it.key, 12.sp, FAINT, mono = true) }
-                Buttons(b("Choose car", action = actions.pickCar), b("Gears", action = actions.gears))
-                Buttons(b("New car", if (idle) NEON else FAINT, actions.newCar), b("Probe", if (idle) NEON else FAINT, actions.probe))
+                Txt("Switch cars or add one at the top of the sidebar.", 13.sp)
+                Buttons(b("Gears", action = actions.gears), b("Probe", if (idle) NEON else FAINT, actions.probe))
             }
         }
         item {

@@ -44,6 +44,7 @@ import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
 import io.github.arka01.cardash.ai.AiSettings
+import io.github.arka01.cardash.cars.Cars
 import kotlinx.coroutines.delay
 
 /*
@@ -69,6 +70,7 @@ class Actions(
     val markKey: (String) -> Unit,
     val shareDrive: () -> Unit,
     val pickCar: () -> Unit,
+    val chooseCar: (String) -> Unit,   // switch to this car (folder name)
     val newCar: () -> Unit,
     val probe: () -> Unit,
     val gears: () -> Unit,
@@ -160,7 +162,9 @@ private fun Sidebar(open: Boolean, tab: Tab, s: Snapshot, actions: Actions, clos
             Column(Modifier.width(260.dp).fillMaxHeight().background(CARD).padding(12.dp)) {
                 Txt("Car Dash", 22.sp, NEON, FontWeight.Bold, glow = true)
                 Txt(BuildConfig.VERSION_NAME, 13.sp, FAINT, mono = true)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
+                CarSwitcher(s, actions, close)
+                Spacer(Modifier.height(12.dp))
                 for (t in Tab.entries) SideItem(t.title, t == tab) { select(t) }
                 Spacer(Modifier.height(16.dp))
                 when (s.mode) {
@@ -173,6 +177,55 @@ private fun Sidebar(open: Boolean, tab: Tab, s: Snapshot, actions: Actions, clos
                 SideItem("Update app", false, FAINT) { actions.update(); close() }
             }
             Box(Modifier.width(1.dp).fillMaxHeight().background(CARD_BORDER))
+        }
+    }
+}
+
+/**
+ * The car in use, at the top of the sidebar: tap it for the list of cars set up on this phone
+ * (tap one to switch: screens, drives and settings follow) and "Add a new car". Not while LIVE
+ * reads a car (one recording is for one car).
+ */
+@Composable
+private fun CarSwitcher(s: Snapshot, actions: Actions, close: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = s.car
+    val cars = remember(current?.key, expanded) { if (expanded) Cars.all().map { Cars.load(it) } else emptyList() }
+    val shape = RoundedCornerShape(12.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).border(1.dp, CARD_BORDER, shape)) {
+        Row(
+            Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Txt(current?.shortName ?: "No car", 18.sp, NEON, FontWeight.SemiBold, glow = true)
+                Txt(current?.name ?: "", 12.sp, FAINT, maxLines = 1)
+            }
+            Txt(if (expanded) "▴" else "▾", 18.sp, MUTED)
+        }
+        if (expanded) {
+            for (car in cars) {
+                val isCurrent = car.key == current?.key
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        if (!isCurrent) actions.chooseCar(car.key)
+                        expanded = false
+                        close()
+                    }.padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    Txt(if (isCurrent) "✓  " else "    ", 15.sp, NEON)
+                    Txt(car.name, 15.sp, if (isCurrent) NEON else MUTED, maxLines = 2)
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().clickable {
+                    expanded = false
+                    close()
+                    actions.newCar()
+                }.padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Txt("+  Add a new car", 15.sp, NEON, FontWeight.Medium)
+            }
         }
     }
 }

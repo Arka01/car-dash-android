@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
             markKey = { Dash.markKey(it) },
             shareDrive = ::shareDrive,
             pickCar = ::pickCar,
+            chooseCar = ::switchCar,
             newCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = true) } },
             probe = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
             gears = ::calibrateGears,
@@ -194,6 +195,17 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------------------------------------------------------------- cars and their tools
+
+    /** Sidebar car switcher: use another car (not while LIVE / a scan / the key test reads a car). */
+    private fun switchCar(key: String) {
+        when (Dash.state.value.mode) {
+            Mode.LIVE, Mode.PROBE, Mode.TEST -> toast("Stop first: one recording is for one car")
+            else -> {
+                Dash.chooseCar(this, key)
+                toast("Now using ${Cars.load(key).shortName}")
+            }
+        }
+    }
 
     private fun pickCar() {
         val keys = Cars.all()
