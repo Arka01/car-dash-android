@@ -219,8 +219,8 @@ private class ValueSpec(
 )
 
 /**
- * The Dash: a main card (speed, gear, RPM with its bar), one alert card, then value cards two per
- * row. Landscape: main + alerts on the left, value cards on the right.
+ * The Dash: a main card (speed, gear, RPM with its bar), one alert card, value cards two per row,
+ * then (scroll down) the details (Screens.kt). Landscape: main + alerts left, the rest right.
  */
 @Composable
 internal fun DashScreen(s: Snapshot, now: Long, actions: Actions) {
@@ -233,6 +233,7 @@ internal fun DashScreen(s: Snapshot, now: Long, actions: Actions) {
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ValueGrid(s, now, actions)
+                    DashDetails(s, now, actions)
                 }
             }
         } else {
@@ -243,6 +244,7 @@ internal fun DashScreen(s: Snapshot, now: Long, actions: Actions) {
                 MainCard(s, now)
                 AlertCard(s)
                 ValueGrid(s, now, actions)
+                DashDetails(s, now, actions)   // scroll down: engine, fuel, battery, trip, all sensors
             }
         }
     }

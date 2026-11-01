@@ -95,11 +95,12 @@ private fun b(label: String, color: Color = NEON, action: () -> Unit) = Triple(l
 // ---------------------------------------------------------------- LIVE DETAILS
 
 /**
- * Live details: everything the app calculates (car, engine, temperature trends, fuel, battery,
- * trip), then the raw values from the engine computer, folded away. Dim while nothing runs.
+ * The details under the Dash (scroll down; Live details was its own screen until build 23):
+ * engine, temperature trends, fuel, battery, trip, then the raw values from the engine computer,
+ * folded away. Dim while nothing runs. Facts about the car itself are in My car.
  */
 @Composable
-internal fun LiveScreen(s: Snapshot, now: Long, actions: Actions) {
+internal fun DashDetails(s: Snapshot, now: Long, actions: Actions) {
     var allOpen by rememberSaveable { mutableStateOf(false) }
     val d = s.derived
     val car = s.car
@@ -110,20 +111,12 @@ internal fun LiveScreen(s: Snapshot, now: Long, actions: Actions) {
         if (v.isUnsupported(label)) return "n/a"
         return f(v[label], format)
     }
-    CardList {
-        item {
-            Titled("Car") {
-                Txt(car?.name ?: "No car chosen", 17.sp, NEON, FontWeight.SemiBold)
-                Spacer(Modifier.height(4.dp))
-                KV("VIN", s.vin, on)
-                val codes = s.troubleCodes
-                KV("Trouble codes", codes, if (codes == null || codes.startsWith("none")) on else WARN, mono = false)
-                KV("Gears (rpm per km/h)", car?.gears?.joinToString(" ") { String.format(Locale.US, "%.0f", it) } ?: "not known yet", NEON)
-                s.protocol?.let { Txt(it, 12.sp, FAINT) }
-            }
-        }
-        item {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Txt("Details", 13.sp, MUTED, FontWeight.SemiBold, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
+        run {
             Titled("Engine") {
+                val codes = s.troubleCodes
+                KV("Fault codes", codes, if (codes == null || codes.startsWith("none")) on else WARN, mono = false)
                 val e = d?.engine
                 if (e != null) {
                     Txt(e.state, 17.sp, e.level.tone(), FontWeight.SemiBold)
@@ -140,7 +133,7 @@ internal fun LiveScreen(s: Snapshot, now: Long, actions: Actions) {
                 KV("Boost", calc("Boost", "%+.2f bar"), on)
             }
         }
-        item {
+        run {
             Titled("Temperature trends (per minute)") {
                 val t = d?.trends.orEmpty()
                 KV("Coolant", f(t["Coolant"], "%+.1f °C"), on)
@@ -149,7 +142,7 @@ internal fun LiveScreen(s: Snapshot, now: Long, actions: Actions) {
                 KV("Catalyst", f(t["Catalyst"], "%+.0f °C"), on)
             }
         }
-        item {
+        run {
             Titled("Fuel") {
                 val fuel = d?.fuel
                 if (fuel == null) {
@@ -172,7 +165,7 @@ internal fun LiveScreen(s: Snapshot, now: Long, actions: Actions) {
                 Buttons(b("Log a fill-up", action = actions.refuel))
             }
         }
-        item {
+        run {
             Titled("Battery") {
                 val bat = d?.battery
                 if (bat == null) {
@@ -195,7 +188,7 @@ internal fun LiveScreen(s: Snapshot, now: Long, actions: Actions) {
                 }
             }
         }
-        item {
+        run {
             Titled("Trip") {
                 KV("Distance", calc("Trip distance", "%.1f km"), on)
                 KV("Average speed", calc("Trip avg speed", "%.0f km/h"), on)
@@ -216,7 +209,7 @@ internal fun LiveScreen(s: Snapshot, now: Long, actions: Actions) {
                 KV("Since codes cleared", f(s.number(0x31), "%.0f km"), on)
             }
         }
-        item {
+        run {
             // The raw values as the engine computer sends them (by PID), folded away by default.
             val readings = s.readings.values.sortedBy { it.pid }
             Card(Modifier.fillMaxWidth()) {

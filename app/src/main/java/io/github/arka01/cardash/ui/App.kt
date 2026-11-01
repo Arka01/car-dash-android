@@ -55,11 +55,11 @@ import kotlinx.coroutines.delay
  */
 
 /**
- * The screens, in sidebar order, from a new customer's point of view (2026-11-01): driving, live
- * details, past drives (with the AI), this car, app settings, and support (logs, crash report).
+ * The screens, in sidebar order, from a new customer's point of view (2026-11-01): now (Dash, with
+ * the details below), past drives (with the AI), my car, the app's settings, and support.
  */
 private enum class Tab(val title: String) {
-    DASH("Dash"), LIVE("Live details"), DRIVES("Drives"), CAR("Car"), SETTINGS("Settings"), SUPPORT("Support"),
+    DASH("Dash"), DRIVES("Drives"), CAR("My car"), SETTINGS("Settings"), SUPPORT("Support"),
 }
 
 /** What the screens can ask the activity to do. */
@@ -123,7 +123,6 @@ fun CarDashApp(adapterName: String?, voiceOn: Boolean, aiSettings: AiSettings, a
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
                     Tab.DASH -> DashScreen(snap, now, actions)
-                    Tab.LIVE -> LiveScreen(snap, now, actions)
                     Tab.DRIVES -> DrivesScreen(snap, actions)
                     Tab.CAR -> CarScreen(snap, actions)
                     Tab.SETTINGS -> SettingsScreen(snap, adapterName, voiceOn, aiSettings, actions)

@@ -80,7 +80,7 @@ for warnings): cards, readable labels, real buttons, big numbers in monospace wi
 All screens have it since build 20 (Dash and Drives since 19). Buttons that were `[NAME]` keys are
 now real buttons with the same names (e.g. `[DEMO]` → **Demo**). The sidebar shows the **car in use** at
 the top (tap it to switch cars or **+ Add a new car**; not while LIVE runs), then **Dash, Info,
-Live details, Drives, Car, Settings, Support**, then **Start LIVE / Stop** and **Update app**. The top bar shows ☰ (sidebar),
+Drives, My car, Settings, Support**, then **Start LIVE / Stop** and **Update app**. The top bar shows ☰ (sidebar),
 the screen, the mode (● LIVE / ◆ DEMO / ○ OFF) and the time; below it the car state, car and rate.
 
 **Dash:** a main card (speed, gear, RPM and its bar: green, amber from the shift point or near the
@@ -95,10 +95,9 @@ LIVE / STOP; tap an entry, or tap the dimmed screen or press Back to close it.
 | Sidebar entry | What it does |
 |---|---|
 | **Car (top)** | The car in use; tap it to switch cars or **+ Add a new car** |
-| **Dash** | Speed, gear, RPM bar, warnings, value cards; tap **Fuel left** to log a fill-up |
-| **Live details** | Everything calculated (car, VIN, codes, engine, temperature trends, fuel with **Log a fill-up**, battery, trip), then **All sensors** (raw values, folded) |
+| **Dash** | Speed, gear, RPM bar, warnings, value cards (tap **Fuel left** to log a fill-up); scroll down for **Details**: engine (fault codes, torque, power, heat soak, boost), temperature trends, fuel (with **Log a fill-up**), battery, trip, then **All sensors** (raw values, folded) |
 | **Drives** | Every recorded drive with its report: AI summary, **Ask about this drive**, **Share**, **Replay** (see "Drive reports") |
-| **Car** | This car: details and VIN, **gears learned automatically**, fuel (tank size, average, fill-ups), engine limits (editable), **Scan car computers** |
+| **My car** | This car: details and VIN, **gears learned automatically**, fuel (tank size, average, fill-ups), engine limits (editable), **Scan car computers** |
 | **Settings** | Connection (choose the adapter), voice on/off, the on-phone AI (model, advanced settings), demo drive, version and updates |
 | **Support** | Connection status, crash report (if the app closed unexpectedly), connection log and **Share log** |
 | **Start LIVE / Stop** | Connect to the car (live data) / stop whatever runs |
@@ -280,10 +279,10 @@ dashboard's `cars/` folder: `car.json` (settings), `vin.txt`, `battery_state.jso
 |---|---|
 | **Car at the top of the sidebar** | Tap it: the cars set up on this phone (tap one to switch; screens, drives and settings follow) and **+ Add a new car**. Not while LIVE runs |
 | **+ Add a new car** (sidebar) | With the adapter in the new car (ignition ON, engine running is best): finds the protocol by itself, reads the VIN (maker from its first 3 characters) and fuel type, scans every computer, then asks name, fuel, tank, engine size and RPM limit (all optional) and sets the car up. A car set up before is recognised by its VIN instead |
-| **Car → Scan car computers** | Read-only scan of every computer of the chosen car (what each supports, gear PID A4, stored and pending trouble codes, names) → `recordings/probe_<date>_<time>.json`, summary in the log |
-| **Car → Gears** (automatic) | After each drive (and when Car opens) the app measures RPM per km/h in each gear from all recorded drives. When it has something new (no gears yet, a gear measured for the first time from 150+ steady readings, or a change over 2 %) **Car** shows **New gears learned** with **Save / Not now**, and the sidebar shows **Car ●**. Unmeasured gears are estimated from the specs |
-| **Car → Fuel / Engine and limits** | Tank size, engine size, shift light and red line can be changed (tap the value). Fuel shows the average consumption and fill-ups learned |
-| **Log a fill-up** (Dash fuel card, Live details, Car) | Litres from the receipt, tick **full** if filled to the automatic cut-off. Goes into the running LIVE drive, or into the next one |
+| **My car → Scan car computers** | Read-only scan of every computer of the chosen car (what each supports, gear PID A4, stored and pending trouble codes, names) → `recordings/probe_<date>_<time>.json`, summary in the log |
+| **My car → Gears** (automatic) | After each drive (and when Car opens) the app measures RPM per km/h in each gear from all recorded drives. When it has something new (no gears yet, a gear measured for the first time from 150+ steady readings, or a change over 2 %) **My car** shows **New gears learned** with **Save / Not now**, and the sidebar shows **My car ●**. Unmeasured gears are estimated from the specs |
+| **My car → Fuel / Engine and limits** | Tank size, engine size, shift light and red line can be changed (tap the value). Fuel shows the average consumption and fill-ups learned |
+| **Log a fill-up** (Dash fuel card, Dash details, My car) | Litres from the receipt, tick **full** if filled to the automatic cut-off. Goes into the running LIVE drive, or into the next one |
 | **Settings → Voice** | Spoken drive summaries and warm-up tips |
 
 **VIN check at every LIVE connect** (as in the Python dashboard): a car with a saved VIN is
@@ -296,7 +295,7 @@ car is changed or cleared.
 
 ---
 
-## Live details
+## Dash details (scroll down on Dash)
 
 | Part | What it shows |
 |---|---|
