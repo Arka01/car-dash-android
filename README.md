@@ -377,8 +377,9 @@ Car Dash shows on the car screen only when installed from **Google Play** (inter
 the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid of tiles.
 
 - **No buttons, nothing tappable** (the Tiago's touch screen makes random ghost taps). Reading
-  starts by itself when Car Dash opens in the car, and stops when the phone is unplugged, but only
-  if the car started it (a LIVE run started on the phone keeps going).
+  starts by itself when Car Dash opens in the car, and stops only when the phone is **really
+  disconnected** from Android Auto (unplugged), if the car started it; a LIVE run started on the
+  phone keeps going. Switching to another app on the car screen (music, maps) keeps reading.
 - It needs two one-time steps on the phone: allow **Nearby devices**, and choose the adapter
   (**☰ → Settings → Choose adapter**). Until then the Status tile says `Set up on phone`.
 - **Grid of tiles** (since build 10), one value each, scrolls: Status, RPM, Coolant, Oil, Intake air,

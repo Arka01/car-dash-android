@@ -64,6 +64,8 @@ kotlin {
 
 dependencies {
     implementation("androidx.car.app:app:1.7.0")
+    // LiveData for the car connection state (stop reading only when Android Auto really disconnects).
+    implementation("androidx.lifecycle:lifecycle-livedata-core:2.9.4")
     implementation("androidx.core:core:1.17.0")   // 1.19+ needs Android SDK 37
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 

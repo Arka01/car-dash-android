@@ -66,7 +66,7 @@ class DriveReport(
 
     companion object {
         /** Raise when the calculation changes: older saved reports are then calculated again. */
-        const val VERSION = 2   // 2: gaps only while the engine runs
+        const val VERSION = 3   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK
 
         fun fromJson(j: JSONObject): DriveReport? {
             if (j.optInt("version") != VERSION) return null
@@ -140,7 +140,7 @@ class DriveReport(
             val idleSecs = (0 until n).filter { running[it] && speed[it] < 0.5 }.sumOf { dt[it] }
             val overRedline = (0 until n).filter { !rpm[it].isNaN() && rpm[it] > car.redlineRpm }.sumOf { dt[it] }
             val redlineVerdict = when {
-                overRedline <= 0.0 -> Verdict.OK
+                overRedline < 1.0 -> Verdict.OK   // a blip (2026-11-01: "for 0 s" showed as WATCH)
                 overRedline <= 5.0 -> Verdict.WATCH
                 else -> Verdict.CHECK
             }
@@ -150,7 +150,7 @@ class DriveReport(
                 ReportLine("top speed", speed.maxOk()?.let { String.format(Locale.US, "%.0f km/h", it) } ?: "--"),
                 ReportLine("idling", if (runningSecs > 0) String.format(Locale.US, "%.0f %%", idleSecs / runningSecs * 100) else "--"),
                 ReportLine("max rpm", rpm.maxOk()?.let { String.format(Locale.US, "%.0f", it) } ?: "--"),
-                ReportLine("over ${car.redlineRpm} rpm", String.format(Locale.US, "%.0f s", overRedline), redlineVerdict),
+                ReportLine("over ${car.redlineRpm} rpm", String.format(Locale.US, "%.1f s", overRedline), redlineVerdict),
             )
             if (redlineVerdict != Verdict.OK) finding(ReportLine("over your ${car.redlineRpm} rpm limit", String.format(Locale.US, "for %.0f s", overRedline), redlineVerdict))
             sections += ReportSection("DRIVE", drive)
