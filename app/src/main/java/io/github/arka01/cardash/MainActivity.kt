@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
                 voiceOn = !voiceOn
                 Speech.setMuted(this, !voiceOn)
             },
+            voiceSetting = ::voiceSetting,
             aiImport = { pickModel.launch(arrayOf("*/*")) },
             aiRemove = ::removeModel,
             aiStop = { LocalLlm.stop() },
@@ -297,6 +298,40 @@ class MainActivity : ComponentActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /** Settings → Voice: choose the voice, speed or pitch, or play a sample. */
+    private fun voiceSetting(key: String) {
+        when (key) {
+            "sample" -> Speech.sample(this)
+            "voice" -> {
+                val voices = Speech.voices()
+                if (voices.isEmpty()) {
+                    toast("No offline voices found yet: open again in a moment, or install voice data in Android's settings")
+                    Speech.init(this)
+                    return
+                }
+                val labels = listOf("Default (English, UK)") + voices.map { Speech.label(it.name) }
+                AlertDialog.Builder(this)
+                    .setTitle("Voice")
+                    .setItems(labels.toTypedArray()) { _, i ->
+                        Speech.setVoice(this, if (i == 0) null else voices[i - 1].name)
+                        Speech.sample(this)
+                    }
+                    .show()
+            }
+            else -> {
+                val options = listOf(0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f)
+                val speed = key == "speed"
+                AlertDialog.Builder(this)
+                    .setTitle(if (speed) "Speed" else "Pitch")
+                    .setItems(options.map { String.format(java.util.Locale.US, if (speed) "%.1f×" else "%.1f", it) + if (it == 1.0f) "  (normal)" else "" }.toTypedArray()) { _, i ->
+                        if (speed) Speech.setRate(this, options[i]) else Speech.setPitch(this, options[i])
+                        Speech.sample(this)
+                    }
+                    .show()
+            }
+        }
     }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()

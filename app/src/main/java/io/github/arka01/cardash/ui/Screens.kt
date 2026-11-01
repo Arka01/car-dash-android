@@ -367,8 +367,21 @@ internal fun SettingsScreen(s: Snapshot, adapterName: String?, voiceOn: Boolean,
         }
         item {
             Titled("Voice") {
+                // Re-read when a voice setting changes (Speech.changes).
+                val context = LocalContext.current
+                val version by io.github.arka01.cardash.Speech.changes.collectAsState()
+                val speech = io.github.arka01.cardash.Speech
+                val voice = remember(version) { speech.label(speech.voiceName(context)) }
+                val rate = remember(version) { speech.rate(context) }
+                val pitch = remember(version) { speech.pitch(context) }
                 Txt("Spoken drive summary after you switch off the engine, and warm-up tips.", 13.sp)
                 Buttons(b(if (voiceOn) "Voice: on" else "Voice: off", if (voiceOn) NEON else FAINT, actions.voice), active = if (voiceOn) "Voice: on" else null)
+                Spacer(Modifier.height(4.dp))
+                Setting("Voice", voice) { actions.voiceSetting("voice") }
+                Setting("Speed", String.format(Locale.US, "%.2g×", rate)) { actions.voiceSetting("speed") }
+                Setting("Pitch", String.format(Locale.US, "%.2g", pitch)) { actions.voiceSetting("pitch") }
+                Buttons(b("Play sample", action = { actions.voiceSetting("sample") }))
+                Txt("Only voices that work offline are listed. More can be added in Android's settings: Text-to-speech → Install voice data.", 12.sp, FAINT)
             }
         }
         item {

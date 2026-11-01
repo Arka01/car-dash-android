@@ -78,6 +78,7 @@ class Actions(
     val editCar: (String) -> Unit,            // change one car setting: tank, engine, redline, shift
     val refuel: () -> Unit,
     val voice: () -> Unit,
+    val voiceSetting: (String) -> Unit,       // "voice", "speed", "pitch" or "sample"
     val aiImport: () -> Unit,
     val aiRemove: () -> Unit,
     val aiStop: () -> Unit,

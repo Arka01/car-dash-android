@@ -278,7 +278,7 @@ If it's done during a drive, it's applied straight away; otherwise at the next s
 | Setting | What it does |
 |---|---|
 | **Connection** | Choose your Bluetooth OBD adapter |
-| **Voice** | Spoken drive summaries and warm-up tips, on or off |
+| **Voice** | Spoken drive summaries and warm-up tips, on or off; **choose the voice** (accent, male or female, depending on the voices on your phone), **speed** and **pitch**; **Play sample**. Only offline voices are listed (more can be installed in Android's settings: Text-to-speech → Install voice data) |
 | **AI** | Import, replace or remove the AI model; advanced settings |
 | **Demo** | Try a recorded demo drive, without a car |
 | **App** | Version, check for updates |
