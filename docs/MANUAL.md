@@ -1,6 +1,6 @@
 # Car Dash – User Manual
 
-*This manual covers every feature up to Car Dash version 0.1.23 (1 November 2026).*
+*This manual covers every feature up to Car Dash version 0.1.24 (1 November 2026).*
 
 Car Dash turns your Android phone into a smart dashboard for your car. It reads live data from your car's diagnostic port, shows what your car's own dashboard doesn't, records every drive, writes a report for each one, and lets an AI on your phone explain your drives in plain words. It can read the summary aloud after you switch off the engine.
 
@@ -144,7 +144,13 @@ Car Dash estimates how much fuel is left by combining:
 - the tank's fuel gauge sensor, which is noisy, so only a one-minute average is used, and only when driving steadily
 - your fill-ups, which are the most reliable of all
 
-It also learns over time how your tank's gauge behaves and how accurate the engine's own fuel count is. **The more fill-ups you log, the more accurate fuel left and range become** (see section 9).
+Like the gears, it then **learns by itself**, from your fill-ups and drives:
+- **your tank's real size** to the first click (often a bit more than the official size), from fill-ups made when the tank was nearly empty
+- **how accurate the engine's own fuel count is**, from every two full fill-ups in a row
+- **what your tank gauge really means** at every level, from steady driving once the count is calibrated
+- **drives made without Car Dash**: the car's own distance counter shows the km you drove, and the fuel they used is taken off
+
+**All you do is log every refuel** (see section 9).
 
 ### The battery is watched
 - **Charging:** while the engine runs, Car Dash checks that the alternator charges the battery. Many modern cars have a **smart alternator** that charges mostly while slowing down, so the voltage is often low while accelerating. For those cars, Car Dash judges charging by the highest voltage over the last few minutes, so you don't get false alarms.
@@ -236,13 +242,19 @@ Log every fill-up to get accurate **fuel left** and **range**:
 2. Tap **Fuel left** on the Dash, or **Log a fill-up** (Dash details or My car).
 3. Enter the **litres from the receipt**, and tick **"Filled to the automatic cut-off"** if you did.
 
+Log **every** refuel: full ones are the anchors, and partial ones (litres only, "full" unticked) keep the count right in between. A forgotten one is noticed from the tank gauge jumping, but less precisely, until the next full fill puts everything right.
+
+Why the first click, not the brim: the litres are exact either way, but the first click gives the **same "full" every time**, which is what the app learns from. Filling to the brim can also push fuel into the car's vapour filter.
+
 What Car Dash does with it:
 - **Filled to the cut-off:** fuel left is set to a full tank, and Car Dash learns how your tank's gauge reads at different levels.
 - **Two full fills in a row:** Car Dash compares the fuel you really used with what it counted, and corrects its counting.
 - **Litres only:** they're added to the current estimate.
 - **Forgot to log it?** Car Dash notices the tank gauge jump and adjusts, but less precisely.
 
-If it's done during a drive, it's applied straight away; otherwise at the next start. Set your **tank size** in **My car**.
+If it's done during a drive, it's applied straight away; otherwise at the next start. Enter your **tank size** in **My car** as a starting point.
+
+**My car → Fuel** shows how far the learning is ("learning: 1 of 2 full fills", then "calibrated · ±0.6 L"), the **real tank size** learned, and a **fill-up log**. After each full fill, the log shows the **true consumption** since the previous full fill and how far off the app's estimate was.
 
 ---
 
@@ -253,7 +265,7 @@ If it's done during a drive, it's applied straight away; otherwise at the next s
 | **This car** | Name, fuel type, chassis number (VIN), learned at the first connection |
 | **New gears learned** | Appears when the app has learned new gear values: **Save** or **Not now** |
 | **Gears** | Engine RPM per km/h in each gear, measured or (still) estimated |
-| **Fuel** | Tank size (tap to change), average consumption, distance counted, fill-ups learned, **Log a fill-up** |
+| **Fuel** | Fuel accuracy and learning status, tank size (entered, tap to change) and **real tank size** (learned), average consumption, gauge points learned, **Log a fill-up**, and the **fill-up log** (litres, true consumption, accuracy check) |
 | **Engine and limits** | Engine size, **shift light** RPM and **red line**, your own limit (tap to change) |
 | **Car computers** | **Scan car computers:** a read-only check of what each computer in your car supports, and any stored fault codes |
 

@@ -295,14 +295,42 @@ internal fun CarScreen(s: Snapshot, actions: Actions) {
         }
         item {
             Titled("Fuel") {
-                Setting("Tank size", car.tankLitres?.let { String.format(Locale.US, "%.0f L", it) } ?: "not set") { actions.editCar("tank_litres") }
+                // Learned by itself from your fill-ups and drives (logic/FuelTracker), like the gears.
+                val fills = fuel?.optJSONArray("fills")
+                val fullFills = (0 until (fills?.length() ?: 0)).count { fills!!.optJSONObject(it)?.optBoolean("full") == true }
+                val calibrated = (fuel?.optInt("rate_scale_learned", 0) ?: 0) > 0
+                val sigma = fuel?.optDouble("variance", Double.NaN)?.takeIf { !it.isNaN() }?.let { kotlin.math.sqrt(it) }
+                val status = when {
+                    fuel == null || fills == null -> "learning: log your next fill-up"
+                    !calibrated -> "learning: $fullFills of 2 full fills"
+                    else -> "calibrated"
+                }
+                KV("Fuel accuracy", status + (sigma?.let { String.format(Locale.US, " · ±%.1f L", it) } ?: ""), if (calibrated) NEON else WARN, mono = false)
+                Setting("Tank size (entered)", car.tankLitres?.let { String.format(Locale.US, "%.0f L", it) } ?: "not set") { actions.editCar("tank_litres") }
+                val learnedTank = fuel?.optDouble("tank_learned", Double.NaN)?.takeIf { !it.isNaN() }
+                val tankFills = fuel?.optInt("tank_samples", 0) ?: 0
+                KV("Real tank size (learned)", learnedTank?.let { String.format(Locale.US, "%.1f L · %d fill%s", it, tankFills, if (tankFills == 1) "" else "s") } ?: "after a near-empty full fill")
                 val km = fuel?.optDouble("total_km", 0.0) ?: 0.0
                 val litres = fuel?.optDouble("total_litres", 0.0) ?: 0.0
                 KV("Average consumption", if (km > 20) String.format(Locale.US, "%.1f L/100 km", litres / km * 100) else "after 20 km")
-                KV("Distance counted", String.format(Locale.US, "%.0f km", km))
-                KV("Fill-ups learned", (fuel?.optJSONArray("float_curve")?.length() ?: 0).toString())
-                Txt("Log every fill-up: fill to the automatic cut-off and enter the litres from the receipt. After two or three, fuel left and range get accurate.", 12.sp, FAINT)
+                KV("Gauge points learned", (fuel?.optJSONArray("float_curve")?.length() ?: 0).toString())
+                Txt("Log every refuel (litres from the pump). Fill to the first automatic click when you fill up; don't top up after it. The rest is learned by itself.", 12.sp, FAINT)
                 Buttons(b("Log a fill-up", action = actions.refuel))
+                if (fills != null && fills.length() > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Txt("Fill-up log", 13.sp, MUTED, FontWeight.SemiBold)
+                    for (i in fills.length() - 1 downTo maxOf(0, fills.length() - 10)) {
+                        val fl = fills.optJSONObject(i) ?: continue
+                        val line = buildString {
+                            append(fl.optString("date").take(10))
+                            if (!fl.isNull("litres")) append(String.format(Locale.US, " · %.1f L", fl.optDouble("litres")))
+                            append(if (fl.optBoolean("full")) " full" else " partial")
+                            if (fl.has("l_per_100km")) append(String.format(Locale.US, " · %.1f L/100", fl.optDouble("l_per_100km")))
+                            if (fl.has("error")) append(String.format(Locale.US, " · app off by %.1f L", kotlin.math.abs(fl.optDouble("error"))))
+                        }
+                        Txt(line, 13.sp, NEON, mono = true)
+                    }
+                }
             }
         }
         item {

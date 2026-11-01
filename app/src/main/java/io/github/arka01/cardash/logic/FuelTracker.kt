@@ -46,12 +46,17 @@ data class FuelReport(
  * State is kept between drives in fuel_state.json. Error sizes are assumptions, not measured.
  */
 class FuelTracker(
-    private val tank: Double,
+    private val nominalTank: Double,     // the size entered in My car: a starting guess
     private val engineLitres: Double?,   // null: no backup estimate from the air (not petrol)
     private val volumetricEfficiency: Double,
     private val stateFile: File?,        // null: don't load or save anything (demo, replay)
 ) {
     private val state: JSONObject = load()
+
+    /** The tank's real volume to the first click: learned from near-empty full fills, else the entered size. */
+    private val tank: Double get() = state.num("tank_learned") ?: nominalTank
+    private var odoChecked = false
+    private var lastOdo: Double? = null   // the car's km counter ("distance since codes cleared")
     private var litres: Double? = state.num("litres")
     private var variance: Double = state.num("variance") ?: 0.0
     private var counted: Double? = litres   // same start, but only ever reduced by counting
@@ -92,6 +97,10 @@ class FuelTracker(
         }
 
         if (!started && !start(now)) return   // waiting for the first float readings
+        v["Since codes cleared"]?.let { odo ->
+            if (!odoChecked) missedDrives(odo)
+            lastOdo = odo
+        }
         if (pendingRefuel != null) applyRefuel(smoothedPct())   // a fill-up entered during the run
         val dt = lastTime?.let { now - it } ?: 0.0
         lastTime = now
@@ -163,6 +172,7 @@ class FuelTracker(
         state.put("float_pct_at_save", smoothedPct() ?: JSONObject.NULL)
         state.put("total_km", round3((state.num("total_km") ?: 0.0) + km))
         state.put("total_litres", round3((state.num("total_litres") ?: 0.0) + used))
+        lastOdo?.let { state.put("odo_km", it) }
         file.parentFile?.mkdirs()
         val temp = File(file.path + ".tmp")
         temp.writeText(state.toString(2))
@@ -207,12 +217,17 @@ class FuelTracker(
         val (added, full) = pendingRefuel ?: return
         pendingRefuel = null
         val before = litres
+        val beforeSigma = if (before != null) sqrt(variance) else null
+        val capacity = tank   // before this fill teaches it anything
+        val receipts = state.num("receipts_since_full") ?: 0.0
+        logFill(added, full, before, beforeSigma, capacity, receipts)
         if (full) {
             if (added != null && added > 0) {
                 learnFromFullFill(added)
                 val pctAtSave = state.num("float_pct_at_save")
                 // Tank was (full - added) litres just before this fill: a real point on the float curve.
-                if (before != null && pctAtSave != null) addCurvePoint(pctAtSave, tank - added)
+                if (before != null && pctAtSave != null) addCurvePoint(pctAtSave, capacity - added)
+                learnTank(before, beforeSigma, added)
             }
             reset(tank, 0.5 * 0.5)   // brimmed tanks still vary a little
             state.put("counting_since_full", 0.0)
@@ -226,6 +241,77 @@ class FuelTracker(
             state.put("receipts_since_full", (state.num("receipts_since_full") ?: 0.0) + added)
             notes += String.format(Locale.US, "Fill-up of %.1f L recorded.", added)
         }
+    }
+
+    /**
+     * The real tank volume to the first click: fuel left just before a full fill + the litres added.
+     * Only from fills made fairly empty with a fairly certain estimate (then the estimate's error is
+     * small next to the tank). Averaged with the entered size as a first guess (2026-11-01).
+     */
+    private fun learnTank(before: Double?, sigma: Double?, added: Double) {
+        if (before == null || sigma == null || sigma > 2.0 || before > 0.5 * nominalTank) return
+        val estimate = before + added
+        if (estimate < nominalTank * 0.8 || estimate > nominalTank * 1.3) return   // implausible: skip
+        val n = state.optInt("tank_samples", 0)
+        val old = state.num("tank_learned") ?: nominalTank
+        val learned = (old * (n + 1) + estimate) / (n + 2)   // the entered size counts as one sample
+        state.put("tank_learned", round(learned * 10) / 10)
+        state.put("tank_samples", n + 1)
+        notes += String.format(Locale.US, "Real tank size learned: %.1f L (from %d fill%s).", learned, n + 1, if (n == 0) "" else "s")
+    }
+
+    /**
+     * One line per refuel in fuel_state.json ("fills"): date, litres, full, the car's km counter, what
+     * the app thought was left, and for full fills an accuracy check and the true consumption since
+     * the previous full fill (litres added / km driven: the most reliable figure there is).
+     */
+    private fun logFill(added: Double?, full: Boolean, before: Double?, sigma: Double?, capacity: Double, receipts: Double) {
+        val odo = lastOdo ?: state.num("odo_km")   // refuels happen between drives: the last drive's end
+        val fill = JSONObject()
+            .put("date", SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()))
+            .put("litres", added ?: JSONObject.NULL)
+            .put("full", full)
+            .put("odo_km", odo ?: JSONObject.NULL)
+            .put("app_before", before?.let { round(it * 10) / 10 } ?: JSONObject.NULL)
+        if (full && added != null && added > 0) {
+            val actual = capacity - added
+            fill.put("actual_before", round(actual * 10) / 10)
+            if (before != null) {
+                fill.put("error", round((before - actual) * 10) / 10)
+                notes += String.format(Locale.US, "Accuracy check: the app said %.1f L were left; this fill showed about %.1f L (off by %.1f L).",
+                    before, actual, abs(before - actual))
+            }
+            val fullOdo = state.num("full_odo")
+            if (odo != null && fullOdo != null && odo - fullOdo >= 20) {
+                val l100 = (receipts + added) / (odo - fullOdo) * 100
+                fill.put("l_per_100km", round(l100 * 10) / 10)
+                notes += String.format(Locale.US, "True consumption since the last full fill: %.1f L/100 km.", l100)
+            }
+        }
+        if (full && odo != null) state.put("full_odo", odo)
+        val fills = state.optJSONArray("fills") ?: JSONArray()
+        fills.put(fill)
+        val kept = JSONArray()
+        for (i in maxOf(0, fills.length() - 50) until fills.length()) kept.put(fills.get(i))
+        state.put("fills", kept)
+        save()
+    }
+
+    /**
+     * Drives without Car Dash: the car's km counter moved since the last saved drive, so fuel was used
+     * that wasn't counted: km x this car's consumption is taken off, with a larger uncertainty.
+     */
+    private fun missedDrives(odo: Double) {
+        odoChecked = true
+        val saved = state.num("odo_km") ?: return
+        val km = odo - saved
+        if (km < 1 || km > 3000) return   // nothing missed, or the counter was reset (codes cleared)
+        val l = km * (consumption() ?: DEFAULT_L_PER_100) / 100
+        litres = litres?.let { maxOf(0.0, it - l) }
+        counted = counted?.let { it - l }
+        variance += (0.3 * l) * (0.3 * l)
+        state.put("counting_since_full_valid", false)   // this tank can't calibrate the counting any more
+        notes += String.format(Locale.US, "Driven about %.0f km without Car Dash: about %.1f L taken off.", km, l)
     }
 
     /** Between two fills to full, the litres added = the fuel really burned: correct the counting scale. */
@@ -320,6 +406,7 @@ class FuelTracker(
         val pct = smoothedPct() ?: return
         val current = litres ?: return
         lastFloatUpdate = now
+        learnGauge(pct)
         val measured = floatLitres(pct)
         var noise = floatSigma() * floatSigma()
         if (pct >= PLATEAU_PCT && current >= measured) return   // up on the plateau the float only says "at least"
@@ -328,6 +415,21 @@ class FuelTracker(
         litres = current + gain * (measured - current)
         val floor = if (curve().size >= 2) MIN_SIGMA_CALIBRATED else MIN_SIGMA
         variance = maxOf((1 - gain) * variance, floor * floor)
+    }
+
+    /**
+     * The tank gauge's curve from counting (2026-11-01): once the counting is calibrated by two full
+     * fills, litres left since the last full fill are known without the gauge (tank - counted +
+     * receipts), so each steady moment is a point "gauge % = litres". Not near full (the gauge sticks
+     * there) or empty (least reliable), and only on a tank counted all the way since full.
+     */
+    private fun learnGauge(pct: Double) {
+        if (state.optInt("rate_scale_learned", 0) == 0 || !state.optBoolean("counting_since_full_valid", false)) return
+        if (pct >= PLATEAU_PCT || pct <= 5) return
+        val burned = (state.num("counting_since_full") ?: return) * (state.num("rate_scale") ?: 1.0)
+        val left = tank - burned + (state.num("receipts_since_full") ?: 0.0)
+        if (left <= 0 || left > tank) return
+        addCurvePoint(pct, left)
     }
 
     private fun floatSigma() = if (curve().size >= 2) FLOAT_SIGMA_CALIBRATED else FLOAT_SIGMA
@@ -391,5 +493,6 @@ class FuelTracker(
         const val PLATEAU_PCT = 97.0           // float reads ~100 % for the first litres after filling
         const val REFUEL_JUMP = 4.0            // litres: a bigger rise since last drive counts as a refuel
         const val SAVE_EVERY = 30.0            // seconds between saves of the state file
+        const val DEFAULT_L_PER_100 = 7.0      // for missed drives before the car's own average is known
     }
 }
