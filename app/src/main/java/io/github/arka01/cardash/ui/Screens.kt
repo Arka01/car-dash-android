@@ -19,6 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -240,6 +243,7 @@ internal fun AiScreen(settings: AiSettings, actions: Actions) {
     val ai by LocalLlm.state.collectAsState()
     val crash by CrashReport.report.collectAsState()
     val about by DriveSummary.askAbout.collectAsState()
+    var showPrompt by rememberSaveable { mutableStateOf(false) }
     val hasModel = ai.modelName != null
     CardList {
         crash?.let { report ->
@@ -296,6 +300,20 @@ internal fun AiScreen(settings: AiSettings, actions: Actions) {
                     Txt(DriveSummary.plain(ai.answer), 15.sp, NEON)
                 }
                 if (ai.stats.isNotEmpty()) Txt(ai.stats, 12.sp, FAINT)
+                // Exactly what went to the model: the system instruction and the whole message
+                // (with Ask, the drive report, car notes and history around the question).
+                if (ai.sentPrompt.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Buttons(b(if (showPrompt) "Hide prompt" else "Show prompt", MUTED) { showPrompt = !showPrompt })
+                    if (showPrompt) {
+                        Spacer(Modifier.height(8.dp))
+                        Txt("SYSTEM INSTRUCTION", 12.sp, MUTED, FontWeight.SemiBold)
+                        Txt(ai.sentSystem, 12.sp, FAINT, mono = true)
+                        Spacer(Modifier.height(6.dp))
+                        Txt("MESSAGE", 12.sp, MUTED, FontWeight.SemiBold)
+                        Txt(ai.sentPrompt, 12.sp, FAINT, mono = true)
+                    }
+                }
             }
         }
     }

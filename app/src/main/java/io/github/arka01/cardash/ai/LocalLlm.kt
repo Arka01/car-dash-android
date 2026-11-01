@@ -46,6 +46,8 @@ data class AiState(
     val question: String = "",
     val answer: String = "",
     val stats: String = "",          // e.g. "38.2 s · 412 words · GPU"
+    val sentSystem: String = "",     // exactly what the model got: system instruction…
+    val sentPrompt: String = "",     // …and message (Show prompt on the AI screen)
 )
 
 /** Inference settings, as in Google's AI Edge Gallery app; kept between app starts. */
@@ -249,7 +251,9 @@ object LocalLlm {
         if (!allowLive && Dash.state.value.mode == Mode.LIVE) return "Not while LIVE: stop reading first"
         val saved = settings(app)
         val s = saved.copy(systemPrompt = system ?: saved.systemPrompt, maxTokens = maxTokens ?: saved.maxTokens)
-        store.update { it.copy(busy = true, question = shown ?: question, answer = "", stats = "") }
+        store.update {
+            it.copy(busy = true, question = shown ?: question, answer = "", stats = "", sentSystem = s.systemPrompt, sentPrompt = question)
+        }
         CrashReport.step(String.format(Locale.US, "ask: %s, model %s (%.2f GB), temp %.2f, topK %d, topP %.2f, max %d, question %d chars",
             if (s.gpu) "GPU" else "CPU", model.name, model.length() / 1e9, s.temperature, s.topK, s.topP, s.maxTokens, question.length), first = true)
         job = scope.launch {
