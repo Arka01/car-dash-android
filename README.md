@@ -258,7 +258,7 @@ car notes, earlier drives and the fuel left right now ("FUEL NOW") go with it, s
 work (it only knows what's in that report). With a model imported, **Import model** reads
 **Replace model**; the AI's settings are under **Settings → AI → Advanced settings**. **Show prompt** (under an answer) shows exactly what the
 model got: the system instruction and the whole message (for Ask: car notes, earlier drives, the
-drive report and the question; also for drive summaries). The answer appears word by word, then the time it took.
+drive report, FUEL NOW and the question; for drive summaries: the drive report and FUEL NOW, plus the car notes only when there's a WATCH/CHECK to explain, no earlier drives, because the small model repeated their findings as this drive's). The answer appears word by word, then the time it took.
 The model is loaded when needed (~10 s the first time, ~2–3 GB of memory) and unloaded after
 3 minutes without questions. It doesn't run while LIVE reading runs.
 

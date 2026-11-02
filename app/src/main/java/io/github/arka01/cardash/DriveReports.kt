@@ -69,7 +69,7 @@ object DriveReports {
                 val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
                 val report = calculate(csv, car, earlier)
                 // Spoken summary, unless one was already made when the engine was switched off.
-                if (report != null && DriveSummary.read(csv) == null) DriveSummary.start(app, car, csv, report, earlier, fuelNow(car), speak = true)
+                if (report != null && DriveSummary.read(csv) == null) DriveSummary.start(app, car, csv, report, fuelNow(car), speak = true)
             }
             if (Cars.active(app).key == car.key) {
                 refresh(app)
@@ -88,7 +88,7 @@ object DriveReports {
             lock.withLock {
                 val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
                 val report = calculate(csv, car, earlier) ?: return@withLock
-                DriveSummary.start(app, car, csv, report, earlier, fuelNow(car), speak = true)
+                DriveSummary.start(app, car, csv, report, fuelNow(car), speak = true)
             }
         }
     }
@@ -98,8 +98,7 @@ object DriveReports {
         val app = context.applicationContext
         val car = Cars.active(app)
         val report = load(csv) ?: return "No report for this drive yet"
-        val earlier = Dash.drives(app).filter { it.name < csv.name }.mapNotNull { load(it) }
-        return DriveSummary.start(app, car, csv, report, earlier, fuelNow(car), speak = true)
+        return DriveSummary.start(app, car, csv, report, fuelNow(car), speak = true)
     }
 
     /**

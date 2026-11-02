@@ -22,7 +22,7 @@ class Summary(val spoken: String, val full: String, val witty: String = "")
  *
  * Grounded: the model gets the drive report with the app's own verdicts (it must not judge numbers
  * itself; build 14's test showed it guesses what's normal), short notes about the car (car_notes.txt
- * in the car's folder, editable) and one line per earlier drive. Saved as drive_<…>_summary.txt.
+ * in the car's folder, editable; only when there's a WATCH or CHECK to explain). Saved as drive_<…>_summary.txt.
  */
 object DriveSummary {
     private const val MAX_TOKENS = 450
@@ -40,8 +40,9 @@ object DriveSummary {
         "non-expert. The verdicts in the report (OK, WATCH, CHECK) were decided by the app with this car's own " +
         "rules: trust them and never judge a number yourself. OK means normal. Only talk about THIS DRIVE: its " +
         "findings are exactly the WATCH and CHECK lines in its VERDICT, nothing else. Explain them in simple words " +
-        "and say what to do. If there are none, say the drive was normal. The car notes and earlier drives are " +
+        "and say what to do. If there are none, say the drive was normal. The car notes are " +
         "only background to explain things: never present anything from them as a finding of this drive. " +
+        "RPM is how fast the engine turns, not the car's speed. " +
         "FUEL NOW is the tank right now: if it says LOW FUEL: yes, remind the driver to fuel up soon, in your own " +
         "friendly words; otherwise don't bring up fuel left. Be brief and calm."
 
@@ -90,14 +91,16 @@ object DriveSummary {
      * reads the short version aloud. [fuel] = the tank right now, so a low tank gets a reminder.
      * Returns why not, or null when started.
      */
-    fun start(context: Context, car: CarProfile, csv: File, report: DriveReport, earlier: List<DriveReport>, fuel: FuelReport?,
-              speak: Boolean): String? {
+    fun start(context: Context, car: CarProfile, csv: File, report: DriveReport, fuel: FuelReport?, speak: Boolean): String? {
         val app = context.applicationContext
         if (!LocalLlm.hasModel(app)) return "No AI model imported (AI screen)"
         val prompt = buildString {
-            // Background first, clearly marked (drive 2026-10-31: a battery note was reported as a finding).
-            append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
-            append("BACKGROUND, NOT FINDINGS: EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
+            // The small model reports background as findings even when it's marked (2026-10-31 and 2026-11-02:
+            // a battery WATCH from an earlier drive / the notes on a clean drive). So: no earlier drives here,
+            // and the car notes only when there's a WATCH or CHECK for them to explain.
+            if (report.verdicts.any { it.verdict != Verdict.OK }) {
+                append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
+            }
             append("THIS DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append('\n')
             append(fuelText(fuel)).append('\n')
             append("Write exactly three parts:\n")
@@ -183,9 +186,9 @@ object DriveSummary {
     /** WITTY / SPOKEN / FULL parts of the answer, without Markdown marks; first sentences if the model ignored the format. */
     private fun parse(answer: String): Summary {
         val clean = plain(answer)
-        val wittyAt = Regex("WITTY\\s*:", RegexOption.IGNORE_CASE).find(clean)
-        val spokenAt = Regex("SPOKEN\\s*:", RegexOption.IGNORE_CASE).find(clean)
-        val fullAt = Regex("FULL\\s*:", RegexOption.IGNORE_CASE).find(clean)
+        val wittyAt = heading("WITTY").find(clean)
+        val spokenAt = heading("SPOKEN").find(clean)
+        val fullAt = heading("FULL").find(clean)
         if (spokenAt != null && fullAt != null && fullAt.range.first > spokenAt.range.last) {
             val witty = if (wittyAt != null && wittyAt.range.last < spokenAt.range.first) {
                 clean.substring(wittyAt.range.last + 1, spokenAt.range.first).trim().lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: ""
@@ -197,6 +200,9 @@ object DriveSummary {
         val sentences = Regex("(?<=[.!?])\\s+").split(clean.trim())
         return Summary(sentences.take(3).joinToString(" "), clean.trim())
     }
+
+    /** "NAME:" anywhere, or NAME alone on its line (2026-11-02: the model wrote headings without colons). */
+    private fun heading(name: String) = Regex("(?im)(^[ \\t]*$name[ \\t]*(:|$)|$name[ \\t]*:)")
 
     /** Text without Markdown: no **bold**, # headings or list stars. */
     fun plain(text: String): String = text
