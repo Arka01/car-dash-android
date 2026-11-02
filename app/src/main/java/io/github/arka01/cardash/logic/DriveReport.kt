@@ -69,7 +69,8 @@ class DriveReport(
 
     companion object {
         /** Raise when the calculation changes: older saved reports are then calculated again. */
-        const val VERSION = 4   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK; 4: drive type
+        const val VERSION = 5   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK; 4: drive type;
+                                // 5: "engine revs over …" (the AI read "rpm limit" as a speed limit)
 
         fun fromJson(j: JSONObject): DriveReport? {
             if (j.optInt("version") != VERSION) return null
@@ -156,7 +157,7 @@ class DriveReport(
                 ReportLine("max rpm", rpm.maxOk()?.let { String.format(Locale.US, "%.0f", it) } ?: "--"),
                 ReportLine("over ${car.redlineRpm} rpm", String.format(Locale.US, "%.1f s", overRedline), redlineVerdict),
             )
-            if (redlineVerdict != Verdict.OK) finding(ReportLine("over your ${car.redlineRpm} rpm limit", String.format(Locale.US, "for %.0f s", overRedline), redlineVerdict))
+            if (redlineVerdict != Verdict.OK) finding(ReportLine("engine revs over your ${car.redlineRpm} rpm limit", String.format(Locale.US, "for %.0f s", overRedline), redlineVerdict))
             sections += ReportSection("DRIVE", drive)
 
             // ---------------------------------------------------- fuel
