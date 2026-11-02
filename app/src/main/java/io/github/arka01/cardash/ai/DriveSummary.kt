@@ -1,7 +1,9 @@
 package io.github.arka01.cardash.ai
 
 import android.content.Context
+import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.Speech
+import io.github.arka01.cardash.car.CarControls
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.logic.DriveReport
 import io.github.arka01.cardash.logic.FuelReport
@@ -92,9 +94,12 @@ object DriveSummary {
     /**
      * Writes the summary of [report] (drive [csv]) with the on-phone AI, saves it and, if [speak],
      * reads the short version aloud. [fuel] = the tank right now, so a low tank gets a reminder.
+     * [inCarOnly]: speak only if the phone is still connected to the car when it's ready (owner's rule,
+     * 2026-11-02: unplugged = in a hurry or a break, don't play it on the phone; it's still saved).
      * Returns why not, or null when started.
      */
-    fun start(context: Context, car: CarProfile, csv: File, report: DriveReport, fuel: FuelReport?, speak: Boolean): String? {
+    fun start(context: Context, car: CarProfile, csv: File, report: DriveReport, fuel: FuelReport?, speak: Boolean,
+              inCarOnly: Boolean = false): String? {
         val app = context.applicationContext
         if (!LocalLlm.hasModel(app)) return "No AI model imported (AI screen)"
         val prompt = buildString {
@@ -134,7 +139,9 @@ object DriveSummary {
                 val refuelPart = if (refuel.isEmpty()) "" else "REFUEL:\n$refuel\n\n"
                 runCatching { file(csv).writeText("WITTY:\n$witty\n\n${refuelPart}SPOKEN:\n${summary.spoken}\n\nFULL:\n${summary.full}\n") }
                 saved.value++
-                if (speak && summary.spoken.isNotEmpty()) {
+                if (speak && inCarOnly && !CarControls.inCar) {
+                    Dash.note("Drive summary saved, not spoken: the phone isn't connected to the car")
+                } else if (speak && summary.spoken.isNotEmpty()) {
                     Speech.say(app, listOf(greeting(report), witty, refuel, summary.spoken).filter { it.isNotEmpty() }.joinToString(" "))
                 }
             }

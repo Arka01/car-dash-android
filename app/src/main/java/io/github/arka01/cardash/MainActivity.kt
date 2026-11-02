@@ -26,6 +26,7 @@ import androidx.core.content.FileProvider
 import io.github.arka01.cardash.ai.AiSettings
 import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.ai.LocalLlm
+import io.github.arka01.cardash.car.CarControls
 import io.github.arka01.cardash.cars.Cars
 import io.github.arka01.cardash.logic.GearCalibration
 import io.github.arka01.cardash.obd.Adapters
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
         adapterName = Adapters.chosen(this)?.name
         Cars.init(this)
         Speech.init(this)
+        CarControls.watchConnection(this)   // for "still in the car?" (spoken summaries)
         voiceOn = !Speech.muted(this)
         CrashReport.init(this)   // first: catches crashes, and reads why the app closed last time
         LocalLlm.init(this)

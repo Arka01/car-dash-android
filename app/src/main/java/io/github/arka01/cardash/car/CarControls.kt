@@ -23,6 +23,9 @@ object CarControls {
     @Volatile private var watching = false
     @Volatile private var wasConnected = false
 
+    /** True while the phone is connected to the car (Android Auto): the driver is still in the car. */
+    val inCar: Boolean get() = wasConnected
+
     /**
      * Starts LIVE unless something already runs. Returns what the driver must do on the phone first
      * (one-time setup), or null if reading runs.
@@ -41,7 +44,7 @@ object CarControls {
     fun carGone() {}
 
     /** Follows Android's car connection (connected / not connected) for the rest of the app's life. */
-    private fun watchConnection(context: Context) {
+    fun watchConnection(context: Context) {
         if (watching) return
         watching = true
         val app = context.applicationContext

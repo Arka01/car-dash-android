@@ -220,8 +220,10 @@ With a model imported (see "On-phone AI"), the AI summarises each drive and **re
 
 1. Get in, plug in the phone (Android Auto opens Car Dash, reading starts by itself), drive.
 2. Switch the engine off and wait in the car. After **20 s with the ignition off** the app works out the
-   drive report, the AI writes the summary (~30 s on CPU) and the short version is spoken: through the
-   car speakers while Android Auto is on, else the phone. Starting the engine again stops it.
+   drive report, the AI writes the summary (~30 s on CPU) and the short version is spoken through the
+   car speakers, **only while the phone is still connected to the car** (Android Auto). Unplugged =
+   in a hurry or a break: the summary is saved but not spoken, and the log says so (owner's rule,
+   2026-11-02). **[WRITE AGAIN]** in Drives still reads it aloud. Starting the engine again stops it.
    It starts with a greeting made by the app ("Good evening! Your drive is complete: 15 minutes and
    3.5 kilometres."), then the AI's witty line about the kind of drive (standing still / traffic jam /
    city / highway / mixed, + spirited; from the report), then the summary. Only when the range is below
@@ -230,7 +232,7 @@ With a model imported (see "On-phone AI"), the AI summarises each drive and **re
    skips it, the app says "Fuel is getting low: about N kilometres left." Kept separate because inside
    the summary the reminder got glued onto the battery ("get the battery topped up"). The spoken part ends with the AI's own goodbye,
    fitting the time of day (morning / afternoon / evening / night).
-3. If the phone was unplugged first, the summary is written when LIVE stops instead.
+3. If the phone was unplugged first, the summary is written (silently) when LIVE stops instead.
 
 The summary is in **Drives → the drive → AI summary** (spoken part, then the longer one).
 **[AI SUMMARY]** / **[WRITE AGAIN]** there writes one for any drive (also older ones) and reads it
