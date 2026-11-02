@@ -501,6 +501,7 @@ private fun DriveReportScreen(item: DriveItem, actions: Actions, back: () -> Uni
                     writing -> Txt("Writing… ${ai.status}", 15.sp, WARN)
                     summary != null -> {
                         if (summary.witty.isNotEmpty()) Txt(summary.witty, 15.sp, MUTED)
+                        if (summary.refuel.isNotEmpty()) Txt(summary.refuel, 15.sp, WARN)
                         if (summary.spoken.isNotEmpty()) Txt(summary.spoken, 17.sp, NEON)
                         Spacer(Modifier.height(8.dp))
                         Txt(summary.full, 14.sp, MUTED)

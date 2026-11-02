@@ -224,9 +224,11 @@ With a model imported (see "On-phone AI"), the AI summarises each drive and **re
    car speakers while Android Auto is on, else the phone. Starting the engine again stops it.
    It starts with a greeting made by the app ("Good evening! Your drive is complete: 15 minutes and
    3.5 kilometres."), then the AI's witty line about the kind of drive (standing still / traffic jam /
-   city / highway / mixed, + spirited; from the report), then the summary. The AI also gets **FUEL NOW**
-   (litres left, range, LOW FUEL yes/no): below **50 km range** (or 8 L if the range isn't known) it
-   reminds the driver to fuel up in its own words. The spoken part ends with the AI's own goodbye,
+   city / highway / mixed, + spirited; from the report), then the summary. Only when the range is below
+   **50 km**, the AI also gets **FUEL NOW** (litres left, range) and writes a separate **REFUEL** part
+   (its own words, with the km left), spoken right after the witty line and shown in amber; if it
+   skips it, the app says "Fuel is getting low: about N kilometres left." Kept separate because inside
+   the summary the reminder got glued onto the battery ("get the battery topped up"). The spoken part ends with the AI's own goodbye,
    fitting the time of day (morning / afternoon / evening / night).
 3. If the phone was unplugged first, the summary is written when LIVE stops instead.
 
@@ -258,7 +260,7 @@ car notes, earlier drives and the fuel left right now ("FUEL NOW") go with it, s
 work (it only knows what's in that report). With a model imported, **Import model** reads
 **Replace model**; the AI's settings are under **Settings → AI → Advanced settings**. **Show prompt** (under an answer) shows exactly what the
 model got: the system instruction and the whole message (for Ask: car notes, earlier drives, the
-drive report, FUEL NOW and the question; for drive summaries: the drive report and FUEL NOW, plus the car notes only when there's a WATCH/CHECK to explain, no earlier drives, because the small model repeated their findings as this drive's). The answer appears word by word, then the time it took.
+drive report, FUEL NOW and the question; for drive summaries: the drive report, FUEL NOW only when the range is under 50 km, plus the car notes only when there's a WATCH/CHECK to explain, no earlier drives, because the small model repeated their findings as this drive's). The answer appears word by word, then the time it took.
 The model is loaded when needed (~10 s the first time, ~2–3 GB of memory) and unloaded after
 3 minutes without questions. It doesn't run while LIVE reading runs.
 

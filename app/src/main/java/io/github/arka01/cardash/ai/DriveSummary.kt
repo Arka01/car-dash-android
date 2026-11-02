@@ -5,7 +5,6 @@ import io.github.arka01.cardash.Speech
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.logic.DriveReport
 import io.github.arka01.cardash.logic.FuelReport
-import io.github.arka01.cardash.logic.Pipeline
 import io.github.arka01.cardash.logic.Verdict
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,8 +12,11 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-/** A drive's AI summary: [witty] line, [spoken] (read aloud, a few sentences) and [full] (shown in DRIVES). */
-class Summary(val spoken: String, val full: String, val witty: String = "")
+/**
+ * A drive's AI summary: [witty] line, [refuel] reminder (only when the fuel range is low), [spoken]
+ * (read aloud, a few sentences) and [full] (shown in DRIVES).
+ */
+class Summary(val spoken: String, val full: String, val witty: String = "", val refuel: String = "")
 
 /**
  * The on-phone AI's summary of a drive, written after the engine is switched off and read aloud
@@ -42,9 +44,9 @@ object DriveSummary {
         "findings are exactly the WATCH and CHECK lines in its VERDICT, nothing else. Explain them in simple words " +
         "and say what to do. If there are none, say the drive was normal. The car notes are " +
         "only background to explain things: never present anything from them as a finding of this drive. " +
-        "RPM is how fast the engine turns, not the car's speed. " +
-        "FUEL NOW is the tank right now: if it says LOW FUEL: yes, remind the driver to fuel up soon, in your own " +
-        "friendly words; otherwise don't bring up fuel left. Be brief and calm."
+        "RPM is how fast the engine turns, not the car's speed. A car battery is charged by driving: if it's low " +
+        "on charge, suggest longer drives (or a battery charger if it stays low); never say to top it up. " +
+        "Be brief and calm."
 
     fun file(csv: File) = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_summary.txt")
 
@@ -80,10 +82,11 @@ object DriveSummary {
 
     fun read(csv: File): Summary? = runCatching {
         val text = file(csv).takeIf { it.exists() }?.readText() ?: return null
-        val witty = text.substringAfter("WITTY:\n", "").substringBefore("\n\nSPOKEN:\n").trim()
+        val witty = text.substringAfter("WITTY:\n", "").substringBefore("\n\n").trim()
+        val refuel = text.substringAfter("REFUEL:\n", "").substringBefore("\n\n").trim()
         val spoken = text.substringAfter("SPOKEN:\n", "").substringBefore("\n\nFULL:\n").trim()
         val full = text.substringAfter("FULL:\n", text).trim()
-        Summary(spoken, full, witty)
+        Summary(spoken, full, witty, refuel)
     }.getOrNull()
 
     /**
@@ -102,11 +105,20 @@ object DriveSummary {
                 append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
             }
             append("THIS DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append('\n')
-            append(fuelText(fuel)).append('\n')
-            append("Write exactly three parts:\n")
+            // Fuel only when it's low, as its own part (2026-11-02: inside SPOKEN, "fuel up soon" got glued
+            // onto the battery finding: "get the battery topped up").
+            val range = lowRange(fuel)
+            if (range != null) append(fuelText(fuel)).append('\n')
+            append(if (range != null) "Write exactly four parts:\n" else "Write exactly three parts:\n")
             append("WITTY: one short, light-hearted, friendly sentence about the kind of drive this was (${report.driveType}), " +
                 "for example about enjoying a highway run or surviving heavy traffic. Never mock the driver. No numbers.\n")
+            if (range != null) {
+                append(String.format(Locale.US, "REFUEL: one short, friendly sentence in your own words telling the driver the " +
+                    "fuel tank is getting low, with about %.0f kilometres left, and to fill up with ${car.fuel} soon. This is " +
+                    "about fuel in the tank only, not the battery. Write the word kilometres.\n", range))
+            }
             append("SPOKEN: 2 to 4 short sentences to read aloud to the driver. Plain words, at most two numbers, no lists, no symbols. " +
+                (if (range != null) "Leave fuel out of it: that's in REFUEL. " else "") +
                 "End with a short, warm goodbye in your own words that fits the ${partOfDay()}, different each time.\n")
             append("FULL: a short summary of up to 8 lines, with the reasons.")
         }
@@ -115,9 +127,16 @@ object DriveSummary {
             if (answer != null) {
                 val summary = parse(answer)
                 val witty = summary.witty.ifEmpty { fallbackWitty(report.driveType) }
-                runCatching { file(csv).writeText("WITTY:\n$witty\n\nSPOKEN:\n${summary.spoken}\n\nFULL:\n${summary.full}\n") }
+                val range = lowRange(fuel)
+                val refuel = if (range == null) "" else summary.refuel.ifEmpty {
+                    String.format(Locale.US, "Fuel is getting low: about %.0f kilometres left.", range)
+                }
+                val refuelPart = if (refuel.isEmpty()) "" else "REFUEL:\n$refuel\n\n"
+                runCatching { file(csv).writeText("WITTY:\n$witty\n\n${refuelPart}SPOKEN:\n${summary.spoken}\n\nFULL:\n${summary.full}\n") }
                 saved.value++
-                if (speak && summary.spoken.isNotEmpty()) Speech.say(app, greeting(report) + " " + witty + " " + summary.spoken)
+                if (speak && summary.spoken.isNotEmpty()) {
+                    Speech.say(app, listOf(greeting(report), witty, refuel, summary.spoken).filter { it.isNotEmpty() }.joinToString(" "))
+                }
             }
             working.value = null
         }
@@ -142,10 +161,10 @@ object DriveSummary {
         return "$hello Your drive is complete: $minutes ${if (minutes == 1) "minute" else "minutes"} and $km kilometres."
     }
 
-    /**
-     * The tank right now, for the AI. Whether it's low is decided here, not by the model: under
-     * [LOW_RANGE_KM] of range (owner's choice, 2026-11-01), or under 8 litres while the range isn't known.
-     */
+    /** The range left in km when it's under [LOW_RANGE_KM] (owner's rule, 2026-11-02), else null. Decided here, not by the model. */
+    private fun lowRange(fuel: FuelReport?): Double? = fuel?.takeIf { it.litres != null }?.rangeKm?.takeIf { it < LOW_RANGE_KM }
+
+    /** The tank right now, for the AI. */
     private fun fuelText(fuel: FuelReport?): String = buildString {
         append("FUEL NOW\n")
         val litres = fuel?.litres
@@ -157,8 +176,7 @@ object DriveSummary {
         fuel.sigma?.let { append(String.format(Locale.US, ", give or take %.0f", maxOf(it, 1.0))) }
         append('\n')
         fuel.rangeKm?.let { append(String.format(Locale.US, "  range about %.0f km\n", it)) }
-        val low = fuel.rangeKm?.let { it < LOW_RANGE_KM } ?: (litres < Pipeline.FUEL_LOW)
-        append("  LOW FUEL: ").append(if (low) "yes" else "no").append('\n')
+        append("  LOW FUEL: ").append(if (lowRange(fuel) != null) "yes" else "no").append('\n')
     }
 
     /** "morning", "afternoon", "evening" or "night", for the greeting and the AI's goodbye. */
@@ -187,19 +205,24 @@ object DriveSummary {
     private fun parse(answer: String): Summary {
         val clean = plain(answer)
         val wittyAt = heading("WITTY").find(clean)
+        val refuelAt = heading("REFUEL").find(clean)
         val spokenAt = heading("SPOKEN").find(clean)
         val fullAt = heading("FULL").find(clean)
         if (spokenAt != null && fullAt != null && fullAt.range.first > spokenAt.range.last) {
-            val witty = if (wittyAt != null && wittyAt.range.last < spokenAt.range.first) {
-                clean.substring(wittyAt.range.last + 1, spokenAt.range.first).trim().lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: ""
+            val refuelEnd = refuelAt?.takeIf { it.range.last < spokenAt.range.first }
+            val witty = if (wittyAt != null && wittyAt.range.last < (refuelEnd ?: spokenAt).range.first) {
+                firstLine(clean.substring(wittyAt.range.last + 1, (refuelEnd ?: spokenAt).range.first))
             } else ""
+            val refuel = refuelEnd?.let { firstLine(clean.substring(it.range.last + 1, spokenAt.range.first)) } ?: ""
             val spoken = clean.substring(spokenAt.range.last + 1, fullAt.range.first).trim()
             val full = clean.substring(fullAt.range.last + 1).trim()
-            return Summary(spoken, full, witty)
+            return Summary(spoken, full, witty, refuel)
         }
         val sentences = Regex("(?<=[.!?])\\s+").split(clean.trim())
         return Summary(sentences.take(3).joinToString(" "), clean.trim())
     }
+
+    private fun firstLine(text: String) = text.trim().lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: ""
 
     /** "NAME:" anywhere, or NAME alone on its line (2026-11-02: the model wrote headings without colons). */
     private fun heading(name: String) = Regex("(?im)(^[ \\t]*$name[ \\t]*(:|$)|$name[ \\t]*:)")
