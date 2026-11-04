@@ -337,6 +337,10 @@ private fun AlertCard(s: Snapshot) {
     Card(Modifier.fillMaxWidth(), border = worst.tone(), fill = worst.tone().copy(alpha = 0.08f)) {
         for (a in alerts.take(4)) Txt("▲  ${a.text}", 16.sp, a.level.tone(), FontWeight.SemiBold)
         if (alerts.size > 4) Txt("+${alerts.size - 4} more", 13.sp, MUTED)
+        // Low fuel is the moment to ask for the fill-up that teaches the app this car's tank.
+        if (s.derived?.fuel?.fillTip == true && alerts.any { it.text.startsWith("FUEL") }) {
+            Txt("At the pump: fill until it clicks, then tap Fuel left and log the litres. That teaches Car Dash your tank.", 13.sp, MUTED)
+        }
     }
 }
 

@@ -110,7 +110,7 @@ object DriveReports {
         if (run != null && run.live && run.car.key == car.key) return@runCatching run.pipeline.fuelReport()
         val file = car.file("fuel_state.json")?.takeIf { it.exists() } ?: return@runCatching null
         // Read only: the tracker saves just when it's updated or refuelled, which never happens here.
-        FuelTracker(car.tankLitres ?: return@runCatching null, null, car.volumetricEfficiency, file).report()
+        FuelTracker(car.tankLitres ?: return@runCatching null, null, car.engineLitres, car.volumetricEfficiency, file).report()
     }.getOrNull()?.takeIf { it.litres != null }
 
     /**

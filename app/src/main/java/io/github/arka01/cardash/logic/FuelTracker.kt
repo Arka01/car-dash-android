@@ -26,7 +26,22 @@ data class FuelReport(
     val rangeKm: Double?,
     val fillUpsLearned: Int,
     val notes: List<String>,
+    val fillTip: Boolean,            // the tank isn't learned yet: ask for a fill to the click at the next refuel
 )
+
+/** What the app has learned about this car's fuel readings, in plain words for My car (from fuel_state.json). */
+data class FuelLearning(
+    val fullFills: Int,
+    val calibrated: Boolean,         // two full fills have corrected the counting
+    val sigma: Double?,              // litres, ± one standard deviation
+    val gauge: Check,                // does the tank gauge agree with the fuel counted?
+    val gaugeReadsLow: Boolean,      // when off: the gauge drops faster than the fuel used
+    val fuelRate: Check,             // is the engine's fuel-rate reading believable?
+    val lastFillError: Double?,      // litres the app was off at the last full fill
+    val tankLearned: Double?,
+) {
+    enum class Check { CHECKING, OK, OFF }
+}
 
 /**
  * Fuel left in the tank, in litres (the Python dashboard's fuel_tracker.py). Four sources:
@@ -48,6 +63,7 @@ data class FuelReport(
 class FuelTracker(
     private val nominalTank: Double,     // the size entered in My car: a starting guess
     private val engineLitres: Double?,   // null: no backup estimate from the air (not petrol)
+    private val engineSize: Double?,     // litres, any fuel: for the idle fuel-rate check
     private val volumetricEfficiency: Double,
     private val stateFile: File?,        // null: don't load or save anything (demo, replay)
 ) {
@@ -79,6 +95,7 @@ class FuelTracker(
     private val notes = mutableListOf<String>()
     private var started = false
     private var consumptionNow: Double? = null
+    private var engineOffAt = 0.0          // last time the engine was seen not running (gauge reads differently then)
 
     // ------------------------------------------------------------ public
 
@@ -92,7 +109,12 @@ class FuelTracker(
 
     /** Feed one set of readings; call once per update. */
     fun update(v: Values, now: Double, tripKm: Double, accelG: Double) {
-        if (lastSave == 0.0) lastSave = now
+        if (lastSave == 0.0) {
+            lastSave = now
+            engineOffAt = now   // the gauge check waits for a full minute of readings from this run
+        }
+        val rpm = v["RPM"]
+        if (rpm == null || rpm < 400) engineOffAt = now
         val pct = v["Fuel level"]
         if (pct != null) {
             readings.addLast(now to pct)
@@ -108,6 +130,7 @@ class FuelTracker(
         val dt = lastTime?.let { now - it } ?: 0.0
         lastTime = now
 
+        checkRate(v)
         val (f0, source) = currentFlow(v)
         flow = f0
         flowSource = source
@@ -143,6 +166,7 @@ class FuelTracker(
             rangeKm = if (left != null && consumption != null && consumption > 0) left / consumption * 100 else null,
             fillUpsLearned = state.optJSONArray("float_curve")?.length() ?: 0,
             notes = notes.toList(),
+            fillTip = state.optInt("tank_samples", 0) == 0 || state.optInt("rate_scale_learned", 0) == 0,
         )
     }
 
@@ -206,6 +230,7 @@ class FuelTracker(
             ) {
                 reset(maxOf(sensor, saved), floatSigma() * floatSigma())
                 state.put("counting_since_full_valid", false)
+                state.remove("gauge_window")
                 notes += String.format(Locale.US, "Refuel detected (~%.0f L added). Next time use [REFUEL] for the best accuracy.", sensor - saved)
             }
         }
@@ -220,6 +245,7 @@ class FuelTracker(
     private fun applyRefuel(pctNow: Double?) {
         val (added, full) = pendingRefuel ?: return
         pendingRefuel = null
+        state.remove("gauge_window")
         val before = litres
         val beforeSigma = if (before != null) sqrt(variance) else null
         val capacity = tank   // before this fill teaches it anything
@@ -315,6 +341,10 @@ class FuelTracker(
         counted = counted?.let { it - l }
         variance += (0.3 * l) * (0.3 * l)
         state.put("counting_since_full_valid", false)   // this tank can't calibrate the counting any more
+        state.optJSONObject("gauge_window")?.let {        // the gauge check goes on, with this estimate marked
+            it.put("litres", it.optDouble("litres", 0.0) + l)
+            it.put("missed", it.optDouble("missed", 0.0) + l)
+        }
         notes += String.format(Locale.US, "Driven about %.0f km without Car Dash: about %.1f L taken off.", km, l)
     }
 
@@ -353,16 +383,21 @@ class FuelTracker(
     private fun currentFlow(v: Values): Pair<Double?, String?> {
         val air = airFlowLph(v)
         val rate = v["Fuel rate"]
-        if (rate != null) {
-            if (air != null && air != 0.0) {   // keep the backup scaled to agree with the engine's own figure
-                val ratio = if (air > 0.3) rate / air else null
-                if (ratio != null && ratio > 0.3 && ratio < 3) {
-                    state.put("air_scale", 0.99 * (state.num("air_scale") ?: 1.0) + 0.01 * ratio)
-                }
+        val ratio = if (rate != null && air != null && air > 0.3) rate / air else null
+        if (ratio != null) {   // for the fuel-rate check: unclipped, so a wrong reading shows (and a fixed one recovers)
+            state.put("rate_vs_air", 0.99 * (state.num("rate_vs_air") ?: ratio) + 0.01 * ratio)
+            state.put("rate_vs_air_n", state.optInt("rate_vs_air_n", 0) + 1)
+        }
+        val believable = rateCheck() != FuelLearning.Check.OFF
+        if (rate != null && believable) {
+            // keep the backup scaled to agree with the engine's own figure
+            if (ratio != null && ratio > 0.3 && ratio < 3) {
+                state.put("air_scale", 0.99 * (state.num("air_scale") ?: 1.0) + 0.01 * ratio)
             }
             return rate * (state.num("rate_scale") ?: 1.0) to RATE
         }
-        if (air != null) return air * (state.num("air_scale") ?: 1.0) to "estimated from air intake"
+        // The car's figure missing, or not believable: the air estimate (unscaled if the scale came from a wrong rate).
+        if (air != null) return air * (if (believable) state.num("air_scale") ?: 1.0 else 1.0) to "estimated from air intake"
         return null to null
     }
 
@@ -390,6 +425,7 @@ class FuelTracker(
         litres = litres?.minus(l)
         counted = counted?.minus(l)
         usedTrip += l
+        state.optJSONObject("gauge_window")?.let { it.put("litres", it.optDouble("litres", 0.0) + l) }
         val scale = state.num("rate_scale") ?: 1.0
         if (flowSource == RATE) {
             state.put("counting_since_full", (state.num("counting_since_full") ?: 0.0) + l / scale)
@@ -411,8 +447,10 @@ class FuelTracker(
         val current = litres ?: return
         lastFloatUpdate = now
         learnGauge(pct)
+        if (now - engineOffAt >= SMOOTH_SECONDS) checkGauge(pct)   // only readings taken with the engine running
         val measured = floatLitres(pct)
         var noise = floatSigma() * floatSigma()
+        if (gaugeCheck() == FuelLearning.Check.OFF && rateCheck() == FuelLearning.Check.OK) noise *= GAUGE_OFF_NOISE
         if (pct >= PLATEAU_PCT && current >= measured) return   // up on the plateau the float only says "at least"
         if (pct <= 3) noise *= 4   // near empty the sender is least reliable
         val gain = variance / (variance + noise)
@@ -435,6 +473,47 @@ class FuelTracker(
         if (left <= 0 || left > tank) return
         addCurvePoint(pct, left)
     }
+
+    /**
+     * Gauge check (2026-11-04): over every [GAUGE_CHECK_PCT] the gauge drops, compare the litres it
+     * shows gone with the litres counted from the engine. Several checks far from 1 = the gauge (or
+     * its learned curve) is off at these levels; it is then trusted less, see [floatUpdate]. Fill-ups
+     * teach the gauge's curve, after which new checks come out right and the flag clears.
+     */
+    private fun checkGauge(pct: Double) {
+        if (pct >= PLATEAU_PCT) return   // stuck near full: says nothing about the fuel used
+        val window = state.optJSONObject("gauge_window")
+        if (window == null || pct > window.optDouble("pct") + 5) {   // none yet, or fuel was added
+            state.put("gauge_window", JSONObject().put("pct", pct).put("litres", 0.0))
+            return
+        }
+        val start = window.optDouble("pct")
+        if (start - pct < GAUGE_CHECK_PCT) return
+        val counted = window.optDouble("litres", 0.0)
+        // Skipped if too much of it is only estimated (drives without Car Dash).
+        if (counted > 0.5 && window.optDouble("missed", 0.0) <= MAX_MISSED_SHARE * counted) {
+            val ratio = (floatLitres(start) - floatLitres(pct)) / counted
+            val checks = state.optJSONArray("gauge_checks") ?: JSONArray()
+            checks.put(JSONArray().put(round((start + pct) / 2 * 10) / 10).put(round(ratio * 100) / 100))
+            while (checks.length() > 10) checks.remove(0)
+            state.put("gauge_checks", checks)
+        }
+        state.put("gauge_window", JSONObject().put("pct", pct).put("litres", 0.0))
+    }
+
+    private fun gaugeCheck() = gaugeVerdict(state).first
+
+    /** Idle fuel use (engine running, standing still), for the fuel-rate check. */
+    private fun checkRate(v: Values) {
+        val rate = v["Fuel rate"] ?: return
+        val rpm = v["RPM"] ?: return
+        if (rpm < 500 || rpm > 1100 || (v["Speed"] ?: 0.0) > 0) return
+        val n = state.optInt("idle_n", 0)
+        state.put("idle_lph", if (n == 0) rate else 0.99 * (state.num("idle_lph") ?: rate) + 0.01 * rate)
+        state.put("idle_n", n + 1)
+    }
+
+    private fun rateCheck() = rateVerdict(state, engineSize)
 
     private fun floatSigma() = if (curve().size >= 2) FLOAT_SIGMA_CALIBRATED else FLOAT_SIGMA
 
@@ -541,7 +620,60 @@ class FuelTracker(
 
     private fun round3(x: Double) = round(x * 1000) / 1000
 
-    private companion object {
+    companion object {
+        /** For My car: what has been learned so far, from the saved state (null file: nothing yet). */
+        fun learning(state: JSONObject?, engineSize: Double?): FuelLearning {
+            val s = state ?: JSONObject()
+            val fills = s.optJSONArray("fills")
+            val list = (0 until (fills?.length() ?: 0)).mapNotNull { fills!!.optJSONObject(it) }
+            val (gauge, low) = gaugeVerdict(s)
+            return FuelLearning(
+                fullFills = list.count { it.optBoolean("full") },
+                calibrated = s.optInt("rate_scale_learned", 0) > 0,
+                sigma = s.optDouble("variance", Double.NaN).takeIf { !it.isNaN() }?.let { sqrt(it) },
+                gauge = gauge,
+                gaugeReadsLow = low,
+                fuelRate = rateVerdict(s, engineSize),
+                lastFillError = list.lastOrNull { it.has("error") }?.optDouble("error"),
+                tankLearned = s.optDouble("tank_learned", Double.NaN).takeIf { !it.isNaN() },
+            )
+        }
+
+        /** The last 3 gauge checks: OK when their median ratio is near 1; second = gauge reads low. */
+        private fun gaugeVerdict(s: JSONObject): Pair<FuelLearning.Check, Boolean> {
+            val checks = s.optJSONArray("gauge_checks") ?: return FuelLearning.Check.CHECKING to false
+            val ratios = (maxOf(0, checks.length() - 3) until checks.length())
+                .mapNotNull { checks.optJSONArray(it)?.optDouble(1)?.takeIf { r -> !r.isNaN() } }.sorted()
+            if (ratios.size < 2) return FuelLearning.Check.CHECKING to false
+            val median = if (ratios.size % 2 == 1) ratios[ratios.size / 2] else (ratios[0] + ratios[1]) / 2
+            return if (median in GAUGE_OK) FuelLearning.Check.OK to false else FuelLearning.Check.OFF to (median > 1)
+        }
+
+        /**
+         * Is the engine's fuel rate believable? Idle use per litre of engine and, for petrol, agreement
+         * with the air-intake estimate (rough: the engine's breathing is assumed). Wide limits: only a
+         * clearly wrong reading (e.g. a different unit or always zero) fails.
+         */
+        private fun rateVerdict(s: JSONObject, engineSize: Double?): FuelLearning.Check {
+            val idleN = s.optInt("idle_n", 0)
+            val airN = s.optInt("rate_vs_air_n", 0)
+            val idle = s.optDouble("idle_lph", Double.NaN)
+            val vsAir = s.optDouble("rate_vs_air", Double.NaN)
+            val idleKnown = idleN >= RATE_SAMPLES && engineSize != null && engineSize > 0 && !idle.isNaN()
+            val airKnown = airN >= RATE_SAMPLES && !vsAir.isNaN()
+            if (idleKnown && (idle / engineSize!!) !in IDLE_LPH_PER_LITRE) return FuelLearning.Check.OFF
+            if (airKnown && vsAir !in RATE_VS_AIR) return FuelLearning.Check.OFF
+            return if (idleKnown || airKnown) FuelLearning.Check.OK else FuelLearning.Check.CHECKING
+        }
+
+        private val GAUGE_OK = 0.75..1.33          // gauge litres / counted litres that count as agreeing
+        private val IDLE_LPH_PER_LITRE = 0.2..2.0  // idle fuel use, L/h per litre of engine
+        private val RATE_VS_AIR = 0.5..2.0         // engine's fuel rate / air-intake estimate
+        private const val RATE_SAMPLES = 300       // readings before the fuel-rate check decides
+        private const val GAUGE_CHECK_PCT = 10.0   // gauge drop (%) per gauge check
+        private const val MAX_MISSED_SHARE = 0.3   // most of a gauge check's litres must be counted, not estimated
+        private const val GAUGE_OFF_NOISE = 4.0    // a gauge that disagrees: its variance x this (sigma x2)
+
         const val PETROL_G_PER_LITRE = 745.0   // density of petrol
         const val STOICHIOMETRIC_AFR = 14.7    // grams of air per gram of petrol for complete burning
         const val RATE = "engine fuel rate"

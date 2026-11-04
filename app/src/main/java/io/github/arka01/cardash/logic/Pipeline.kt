@@ -32,7 +32,7 @@ class Pipeline(val car: CarProfile, live: Boolean, now: Double) {
 
     // The backup estimate from the air the engine takes in assumes petrol, so it's off for other fuels.
     private val fuel: FuelTracker? = car.tankLitres?.let { tank ->
-        FuelTracker(tank, if (car.fuel == "petrol") car.engineLitres else null, car.volumetricEfficiency,
+        FuelTracker(tank, if (car.fuel == "petrol") car.engineLitres else null, car.engineLitres, car.volumetricEfficiency,
             if (live) car.file("fuel_state.json") else null)
     }
 

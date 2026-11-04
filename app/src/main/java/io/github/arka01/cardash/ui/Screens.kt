@@ -38,6 +38,8 @@ import io.github.arka01.cardash.Snapshot
 import io.github.arka01.cardash.ai.AiSettings
 import io.github.arka01.cardash.ai.LocalLlm
 import io.github.arka01.cardash.cars.Cars
+import io.github.arka01.cardash.logic.FuelLearning
+import io.github.arka01.cardash.logic.FuelTracker
 import io.github.arka01.cardash.logic.Rules
 import org.json.JSONObject
 import java.util.Locale
@@ -237,6 +239,12 @@ internal fun DashDetails(s: Snapshot, now: Long, actions: Actions) {
  * This car: its details, the gears (learned by themselves from the drives, see GearLearner), fuel
  * learning and fill-ups, engine limits (editable) and a read-only scan of its computers.
  */
+private fun checkColor(c: FuelLearning.Check) = when (c) {
+    FuelLearning.Check.CHECKING -> MUTED
+    FuelLearning.Check.OK -> NEON
+    FuelLearning.Check.OFF -> WARN
+}
+
 @Composable
 internal fun CarScreen(s: Snapshot, actions: Actions) {
     val context = LocalContext.current
@@ -258,6 +266,37 @@ internal fun CarScreen(s: Snapshot, actions: Actions) {
                 KV("Fuel", car.fuel, NEON, mono = false)
                 KV("VIN", vin ?: "learned at the first connection", if (vin == null) FAINT else NEON, mono = vin != null)
                 if (car.smartAlternator) Txt("Smart alternator: low voltage while accelerating is normal for this car.", 12.sp, FAINT)
+            }
+        }
+        item {
+            // The app's self-checks on this car, in plain words (logic/FuelTracker.learning, gears).
+            val learn = remember(fuel) { FuelTracker.learning(fuel, car.engineLitres) }
+            Titled("How well Car Dash knows your car") {
+                val (fuelText, fuelOk) = when {
+                    learn.calibrated -> (learn.sigma?.let { String.format(Locale.US, "accurate to about ±%.1f L", it) } ?: "accurate") to true
+                    learn.fullFills == 0 -> "learning: log a fill-up to the pump's click" to false
+                    else -> "learning: 1 more fill-up to the click" to false
+                }
+                KV("Fuel left", fuelText, if (fuelOk) NEON else WARN, mono = false)
+                learn.lastFillError?.let { KV("Last fill-up check", String.format(Locale.US, "Car Dash was off by %.1f L", kotlin.math.abs(it)), mono = false) }
+                learn.tankLearned?.let { KV("Your real tank", String.format(Locale.US, "%.1f L", it), mono = false) }
+                KV("Fuel gauge", when (learn.gauge) {
+                    FuelLearning.Check.CHECKING -> "checking while you drive"
+                    FuelLearning.Check.OK -> "reads right"
+                    FuelLearning.Check.OFF -> (if (learn.gaugeReadsLow) "shows less than there is" else "shows more than there is") + "; Car Dash corrects for it"
+                }, checkColor(learn.gauge), mono = false)
+                KV("Fuel use reading", when (learn.fuelRate) {
+                    FuelLearning.Check.CHECKING -> "checking while you drive"
+                    FuelLearning.Check.OK -> "looks right"
+                    FuelLearning.Check.OFF -> "looked wrong; estimated from the engine instead"
+                }, checkColor(learn.fuelRate), mono = false)
+                val gears = car.gearRpmPerKmh
+                KV("Gears", when {
+                    gears == null -> "learning: just drive"
+                    measured?.all { it } == true -> "learned"
+                    else -> "learned; some still estimated"
+                }, if (gears == null) WARN else NEON, mono = false)
+                Txt("These checks run by themselves on every drive. Details are in the cards below.", 12.sp, FAINT)
             }
         }
         suggestion?.takeIf { it.carKey == car.key }?.let { sg ->

@@ -255,7 +255,7 @@ What Car Dash does with it:
 - **Litres only:** they're added to the current estimate.
 - **Forgot to log it?** Car Dash notices the tank gauge jump and adjusts, but less precisely.
 
-If it's done during a drive, it's applied straight away; otherwise at the next start. Enter your **tank size** in **My car** as a starting point.
+When fuel is low, the Dash reminds you to fill to the click and log it, until Car Dash has learned your tank. If it's done during a drive, it's applied straight away; otherwise at the next start. Enter your **tank size** in **My car** as a starting point.
 
 **My car → Fuel** shows how far the learning is ("learning: 1 of 2 full fills", then "calibrated · ±0.6 L"), the **real tank size** learned, and a **fill-up log**. After each full fill, the log shows the **true consumption** since the previous full fill and how far off the app's estimate was.
 
@@ -266,6 +266,7 @@ If it's done during a drive, it's applied straight away; otherwise at the next s
 | Card | What's in it |
 |---|---|
 | **This car** | Name, fuel type, chassis number (VIN), learned at the first connection |
+| **How well Car Dash knows your car** | Car Dash checks itself on every drive, for each car: how accurate **fuel left** is, whether your **fuel gauge** agrees with the fuel actually used (if not, Car Dash relies on its own count), whether the car's **fuel use reading** makes sense (if not, it estimates from the engine instead), and whether your **gears** are learned. Amber means "still learning" or "corrected for": nothing to do except log your fill-ups |
 | **New gears learned** | Appears when the app has learned new gear values: **Save** or **Not now** |
 | **Gears** | Engine RPM per km/h in each gear, measured or (still) estimated |
 | **Fuel** | Fuel accuracy and learning status, tank size (entered, tap to change) and **real tank size** (learned), average consumption, gauge points learned, **Log a fill-up**, and the **fill-up log** (litres, true consumption, accuracy check) |
