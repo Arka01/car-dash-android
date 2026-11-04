@@ -153,7 +153,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Share (in a drive's report): one ZIP with its recording, profile, report and AI summary, e.g. by email.
+     * Share (in a drive's report): one ZIP with its recording, profile, report, AI summary and the car's
+     * fuel_state.json, e.g. by email.
      * A ZIP so apps pass the files on untouched (a loose CSV gets converted by some apps) and each file
      * carries a checksum, so a damaged copy fails to unzip instead of giving wrong data.
      */
@@ -165,13 +166,15 @@ class MainActivity : ComponentActivity() {
             toast("This drive's files are gone")
             return
         }
+        // The car's fuel memory (fuel left, fill-ups, averages): lets the developer check the fuel numbers.
+        val extras = listOfNotNull(csv.parentFile?.parentFile?.let { java.io.File(it, "fuel_state.json") }?.takeIf { it.exists() })
         Thread {
             val zip = runCatching {
                 val dir = java.io.File(cacheDir, "share").apply { mkdirs() }
                 dir.listFiles()?.forEach { it.delete() }   // only the latest shared drive is kept
                 java.io.File(dir, "CarDash_$base.zip").also { out ->
                     java.util.zip.ZipOutputStream(out.outputStream().buffered()).use { z ->
-                        files.forEach { f ->
+                        (files + extras).forEach { f ->
                             z.putNextEntry(java.util.zip.ZipEntry(f.name).apply { time = f.lastModified() })
                             f.inputStream().use { it.copyTo(z) }
                             z.closeEntry()

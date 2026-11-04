@@ -169,7 +169,7 @@ Car Dash asks the car for several values at once, which makes the important valu
 
 **Drives** lists your drives, newest first. Each card shows the date, duration, distance and consumption, plus the drive's overall verdict: **✓ OK**, **▲ watch** or **■ check**. Tap a drive to open its report:
 
-- **Share:** sends the drive as one ZIP file (recording, report and AI summary), for example by email. Unzip it on the computer; if a copy got damaged on the way, unzipping says so.
+- **Share:** sends the drive as one ZIP file (recording, report, AI summary and the car's fuel data), for example by email. Unzip it on the computer; if a copy got damaged on the way, unzipping says so.
 - **Replay:** plays the drive again on the Dash.
 - **AI summary:** the short spoken text and a longer explanation. Tap **Write again** to have it rewritten.
 - **Ask about this drive:** see section 8.
@@ -250,6 +250,8 @@ Why the first click, not the brim: the litres are exact either way, but the firs
 What Car Dash does with it:
 - **Filled to the cut-off:** fuel left is set to a full tank, and Car Dash learns how your tank's gauge reads at different levels.
 - **Two full fills in a row:** Car Dash compares the fuel you really used with what it counted, and corrects its counting.
+
+**Range** is fuel left divided by your recent consumption: this trip blended with your last ~100 km of driving. Times the car stood still with the engine running (no driving) don't count towards it.
 - **Litres only:** they're added to the current estimate.
 - **Forgot to log it?** Car Dash notices the tank gauge jump and adjusts, but less precisely.
 

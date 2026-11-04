@@ -51,7 +51,7 @@ class FuelTracker(
     private val volumetricEfficiency: Double,
     private val stateFile: File?,        // null: don't load or save anything (demo, replay)
 ) {
-    private val state: JSONObject = load()
+    private val state: JSONObject = load().also { seedRecent(it) }
 
     /** The tank's real volume to the first click: learned from near-empty full fills, else the entered size. */
     private val tank: Double get() = state.num("tank_learned") ?: nominalTank
@@ -72,6 +72,9 @@ class FuelTracker(
     private var tripKmSaved = 0.0
     private var firstSeen: Double? = null
     private var usedSaved = 0.0
+    private var runKm = 0.0                // this run's km and litres, kept in state "recent"
+    private var runLitres = 0.0
+    private var runIndex: Int? = null
     @Volatile private var pendingRefuel: Pair<Double?, Boolean>? = null
     private val notes = mutableListOf<String>()
     private var started = false
@@ -172,6 +175,7 @@ class FuelTracker(
         state.put("float_pct_at_save", smoothedPct() ?: JSONObject.NULL)
         state.put("total_km", round3((state.num("total_km") ?: 0.0) + km))
         state.put("total_litres", round3((state.num("total_litres") ?: 0.0) + used))
+        recordRun(km, used)
         lastOdo?.let { state.put("odo_km", it) }
         file.parentFile?.mkdirs()
         val temp = File(file.path + ".tmp")
@@ -443,17 +447,79 @@ class FuelTracker(
 
     // ------------------------------------------------------------ range
 
-    /** L/100 km for the range: this trip once it's long enough, blended with the long-term average. */
+    /**
+     * L/100 km for the range: this trip once it's long enough, blended with the recent average
+     * (the last ~100 km of driving; the all-time average only until there's 20 km of it).
+     */
     private fun consumption(): Double? {
         val totalKm = state.num("total_km") ?: 0.0
         val totalL = state.num("total_litres") ?: 0.0
-        val longTerm = if (totalKm > 20) totalL / totalKm * 100 else null
+        val longTerm = recentConsumption() ?: if (totalKm > 20) totalL / totalKm * 100 else null
         val trip = if (tripKm > 2) usedTrip / tripKm * 100 else null
         if (longTerm != null && longTerm != 0.0 && trip != null && trip != 0.0) {
             val weight = minOf(tripKm / 50, 0.7)   // longer trips count more, but history always keeps a say
             return weight * trip + (1 - weight) * longTerm
         }
         return trip?.takeIf { it != 0.0 } ?: longTerm
+    }
+
+    /**
+     * L/100 km over the newest runs, back to ~100 km of driving (2026-11-04). Runs that didn't move
+     * (parked with the engine idling, e.g. testing the app) are left out: they made the range far too
+     * low. This run is left out too: it's blended in separately as the trip.
+     */
+    private fun recentConsumption(): Double? {
+        val runs = state.optJSONArray("recent") ?: return null
+        var km = 0.0
+        var litres = 0.0
+        for (i in runs.length() - 1 downTo 0) {
+            if (i == runIndex) continue
+            val run = runs.optJSONArray(i) ?: continue
+            val k = run.optDouble(0, 0.0)
+            if (k < MIN_RUN_KM) continue
+            km += k
+            litres += run.optDouble(1, 0.0)
+            if (km >= RECENT_KM) break
+        }
+        return if (km > 20 && litres > 0) litres / km * 100 else null
+    }
+
+    /** Adds what was driven since the last save to this run's entry in "recent" (one entry per run). */
+    private fun recordRun(km: Double, litres: Double) {
+        runKm += km
+        runLitres += litres
+        if (runKm <= 0 && runLitres <= 0) return
+        val runs = state.optJSONArray("recent") ?: JSONArray()
+        val entry = JSONArray().put(round3(runKm)).put(round3(runLitres))
+        val index = runIndex
+        if (index != null && index < runs.length()) {
+            runs.put(index, entry)
+        } else {
+            runs.put(entry)
+            while (runs.length() > MAX_RUNS) runs.remove(0)
+            runIndex = runs.length() - 1
+        }
+        state.put("recent", runs)
+    }
+
+    /**
+     * First time with "recent": fill it from this car's drive reports (km and litres per recorded
+     * drive), so the range uses real driving straight away instead of the all-time average.
+     */
+    private fun seedRecent(state: JSONObject) {
+        val file = stateFile ?: return
+        if (state.has("recent")) return
+        val reports = File(file.parentFile, "recordings")
+            .listFiles { f -> f.name.startsWith("drive_") && f.name.endsWith("_report.json") }.orEmpty().sortedBy { it.name }
+        val runs = JSONArray()
+        for (f in reports.takeLast(MAX_RUNS)) {
+            val r = runCatching { JSONObject(f.readText()) }.getOrNull() ?: continue
+            val km = r.optDouble("km", Double.NaN)
+            val litres = r.optDouble("litres", Double.NaN)
+            if (km.isNaN() || litres.isNaN()) continue
+            runs.put(JSONArray().put(round3(km)).put(round3(litres)))
+        }
+        state.put("recent", runs)
     }
 
     // ------------------------------------------------------------ helpers
@@ -494,5 +560,8 @@ class FuelTracker(
         const val REFUEL_JUMP = 4.0            // litres: a bigger rise since last drive counts as a refuel
         const val SAVE_EVERY = 30.0            // seconds between saves of the state file
         const val DEFAULT_L_PER_100 = 7.0      // for missed drives before the car's own average is known
+        const val RECENT_KM = 100.0            // the range's average covers about this much recent driving...
+        const val MIN_RUN_KM = 0.5             // ...from runs that moved at least this far
+        const val MAX_RUNS = 60                // runs kept in "recent"
     }
 }

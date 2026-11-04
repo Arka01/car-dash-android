@@ -316,7 +316,7 @@ car is changed or cleared.
 |---|---|
 | CAR | Name, VIN, stored trouble codes (codes only, no descriptions), gear ratios, protocol |
 | ENGINE | State (TOO HOT / HOT, or the warm-up stage), torque (Nm) and power (bhp) with peaks, heat soak, boost, temperature trends per minute |
-| FUEL | Litres left ± uncertainty, range, L/100 km now / this trip / average, fuel flow and its source, float sensor reading, notes |
+| FUEL | Litres left ± uncertainty, range (litres ÷ this trip blended with the last ~100 km of driving; runs under 0.5 km, e.g. parked idling, left out; kept per run in `fuel_state.json` → `recent`, first filled from the drive reports), L/100 km now / this trip / average, fuel flow and its source, float sensor reading, notes |
 | BATTERY | Charging state and volts, engine computer vs port voltage, the dip at the last engine start |
 | TRIP | Distance, average speed, acceleration (g), RPM per km/h, best 0-60 / 0-100 km/h, top speed and RPM, pedal sensor check, km driven with the check-engine light on |
 
@@ -354,7 +354,7 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 - A reconnect during the drive continues the same file. A run that never connected leaves no file.
 - Files are kept per car in `files/cars/<car>/recordings/` (drives from builds 5-6 were moved
   to the Tiago's folder).
-- **Drives → a drive → Share** sends that drive as one ZIP `CarDash_drive_<date>_<time>.zip` (recording, profile, report, AI summary), e.g. by email. A ZIP because some apps convert a loose CSV on the way; the ZIP also has a checksum per file, so a damaged copy fails to unzip instead of giving wrong data.
+- **Drives → a drive → Share** sends that drive as one ZIP `CarDash_drive_<date>_<time>.zip` (recording, profile, report, AI summary + the car's `fuel_state.json` for checking the fuel numbers), e.g. by email. A ZIP because some apps convert a loose CSV on the way; the ZIP also has a checksum per file, so a damaged copy fails to unzip instead of giving wrong data.
 - **Drives → a drive → Replay** plays it again, with all calculations (nothing is saved).
   About 1 MB per 5 minutes.
 - The screen stays on while LIVE / DEMO / TEST runs: a locked phone may pause the app,
