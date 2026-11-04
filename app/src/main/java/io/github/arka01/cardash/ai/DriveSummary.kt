@@ -74,7 +74,8 @@ object DriveSummary {
         "When you mention a drive, give its tag and date. The car notes are background, not findings. FUEL NOW is " +
         "the tank today. RPM is how fast the engine turns, not the car's speed. A car battery is charged by driving: " +
         "if it's low on charge, suggest longer drives (or a battery charger if it stays low); never say to top it up. " +
-        "If the answer isn't in the data, say so. Answer in plain words, briefly."
+        "If the answer isn't in the data, say so. Answer in plain words in 2 to 4 sentences, with the key numbers " +
+        "and the drive tags (D1, D2 …) behind your answer. If the totals say it's only a rough sign, say so too."
     private const val SEVERAL_TOKENS = 700         // answer; the prompt gets the rest of the model's 4096
     private const val SEVERAL_FULL_CHARS = 8500    // longer than this: one line per drive instead of its report
 

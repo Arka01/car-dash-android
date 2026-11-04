@@ -38,18 +38,25 @@ object DriveTotals {
             append(String.format(Locale.US, "Fuel use: best %s %.1f L/100 km (%s), worst %s %.1f L/100 km (%s)\n",
                 tag(best.index), best.value.lPer100, best.value.driveType, tag(worst.index), worst.value.lPer100, worst.value.driveType))
         }
-        trend(fuel.map { it.value.lPer100!! }, 0.10, relative = true, higherIsBetter = false)?.let {
-            append("Fuel use trend: $it (city and traffic use more than highway)\n")
-        }
-
-        series(rs, "BATTERY", "resting")?.let { (text, values) ->
-            append("Battery resting voltage: $text")
-            trend(values, 0.15, relative = false, higherIsBetter = true)?.let { append("; trend: $it") }
+        trend(fuel.map { it.value.lPer100!! }, 0.10, relative = true, higherIsBetter = false)?.let { (word, earlier, later) ->
+            val kinds = fuel.groupingBy { it.value.driveType.substringBefore(",") }.eachCount()
+            val kindText = if (kinds.size == 1) "all ${fuel.size} were ${kinds.keys.first()} drives"
+                else kinds.entries.joinToString(", ") { "${it.value} ${it.key}" }
+            append(String.format(Locale.US, "Fuel use trend: %s, %.1f → %.1f L/100 km (earlier vs later drives); %s",
+                word, earlier, later, kindText))
+            // Few or short drives: cold starts and traffic weigh more than any real change.
+            if (fuel.size < 4 || fuel.sumOf { it.value.km } < 30) append("; few short drives, so only a rough sign")
             append('\n')
         }
-        series(rs, "BATTERY", "start dip")?.let { (text, values) ->
-            append("Battery start dip: $text")
-            trend(values, 0.3, relative = false, higherIsBetter = true)?.let { append("; trend: $it") }
+
+        series(rs, "BATTERY", RESTING)?.let { (text, values) ->
+            append("Battery resting voltage: $text")
+            trend(values, 0.15, relative = false, higherIsBetter = true)?.let { append("; trend: ${it.first}") }
+            append('\n')
+        }
+        series(rs, "BATTERY", START_DIP)?.let { (text, values) ->
+            append("Battery start dip (lowest of the drive): $text")
+            trend(values, 0.3, relative = false, higherIsBetter = true)?.let { append("; trend: ${it.first}") }
             append('\n')
         }
 
@@ -64,20 +71,24 @@ object DriveTotals {
         highest(rs, "DRIVE", "max rpm", "rpm")?.let { append("Highest engine speed: $it\n") }
         highest(rs, "ENGINE", "coolant max", "°C")?.let { append("Hottest coolant: $it\n") }
 
-        // Each WATCH / CHECK finding and on which drives it came up.
-        val findings = LinkedHashMap<String, MutableList<String>>()
+        // Each WATCH / CHECK finding and on which drives it came up (once per drive, the worse verdict;
+        // "start 1 dip" and "start 2 dip" of a drive with two engine starts count as "start dip").
+        val findings = LinkedHashMap<String, LinkedHashMap<String, Verdict>>()
         rs.forEachIndexed { i, r ->
             for (s in r.sections) for (l in s.lines) {
                 if (l.verdict != Verdict.WATCH && l.verdict != Verdict.CHECK) continue
-                val name = s.title.substringBefore(" (").lowercase() + " " + l.label
-                findings.getOrPut(name) { mutableListOf() } += "${tag(i)} ${l.verdict}"
+                val name = s.title.substringBefore(" (").lowercase() + " " + l.label.replace(Regex("^start \\d+ dip"), "start dip")
+                val drives = findings.getOrPut(name) { LinkedHashMap() }
+                if (drives[tag(i)] != Verdict.CHECK) drives[tag(i)] = l.verdict
             }
         }
         if (findings.isEmpty()) {
             append("Findings: none, every drive OK\n")
         } else {
             append("Findings (WATCH / CHECK) and on how many drives:\n")
-            for ((name, on) in findings) append("  $name: ${on.size} of ${rs.size} (${on.joinToString(", ")})\n")
+            for ((name, on) in findings) {
+                append("  $name: ${on.size} of ${rs.size} (${on.entries.joinToString(", ") { "${it.key} ${it.value}" }})\n")
+            }
         }
     }
 
@@ -104,6 +115,9 @@ object DriveTotals {
     private fun line(r: DriveReport, section: String, label: String): ReportLine? =
         r.sections.firstOrNull { it.title.startsWith(section) }?.lines?.firstOrNull { it.label.startsWith(label) }
 
+    private val RESTING = Regex("^resting")
+    private val START_DIP = Regex("^start( \\d+)? dip")   // "start dip", or "start 1 dip", "start 2 dip" with several starts
+
     private fun number(text: String): Double? = Regex("-?\\d+(\\.\\d+)?").find(text)?.value?.toDoubleOrNull()
 
     /** "4:31" -> 271 */
@@ -111,9 +125,15 @@ object DriveTotals {
         it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt()
     }
 
-    /** "12.3 V (D1) → 12.0 V (D3)" and the values, oldest first; null if no drive has it. */
-    private fun series(rs: List<DriveReport>, section: String, label: String): Pair<String, List<Double>>? {
-        val points = rs.withIndex().mapNotNull { (i, r) -> line(r, section, label)?.value?.let(::number)?.let { i to it } }
+    /**
+     * "12.3 V (D1) → 12.0 V (D3)" and the values, oldest first; null if no drive has it. A drive with
+     * several matching lines (several engine starts) gives its lowest value.
+     */
+    private fun series(rs: List<DriveReport>, section: String, label: Regex): Pair<String, List<Double>>? {
+        val points = rs.withIndex().mapNotNull { (i, r) ->
+            r.sections.firstOrNull { it.title.startsWith(section) }?.lines
+                ?.filter { label.containsMatchIn(it.label) }?.mapNotNull { number(it.value) }?.minOrNull()?.let { i to it }
+        }
         if (points.isEmpty()) return null
         return points.joinToString(" → ") { (i, v) -> String.format(Locale.US, "%.1f V (%s)", v, tag(i)) } to points.map { it.second }
     }
@@ -124,16 +144,21 @@ object DriveTotals {
             .maxByOrNull { it.second }?.let { (i, v) -> String.format(Locale.US, "%.0f %s (%s)", v, unit, tag(i)) }
 
     /**
-     * Earlier half against later half: "getting better", "getting worse" or "steady", decided by
-     * [threshold] (a fraction if [relative], else in the values' unit). Null with fewer than 3 values.
+     * Earlier half against later half: "getting better", "getting worse" or "steady" (decided by
+     * [threshold], a fraction if [relative], else in the values' unit) with the two averages.
+     * Null with fewer than 3 values.
      */
-    private fun trend(values: List<Double>, threshold: Double, relative: Boolean, higherIsBetter: Boolean): String? {
+    private fun trend(values: List<Double>, threshold: Double, relative: Boolean, higherIsBetter: Boolean): Triple<String, Double, Double>? {
         if (values.size < 3) return null
         val half = values.size / 2
         val earlier = values.take(half).average()
         val later = values.takeLast(half).average()
         val change = if (relative) (later - earlier) / earlier else later - earlier
-        if (abs(change) < threshold) return "steady"
-        return if ((change > 0) == higherIsBetter) "getting better" else "getting worse"
+        val word = when {
+            abs(change) < threshold -> "steady"
+            (change > 0) == higherIsBetter -> "getting better"
+            else -> "getting worse"
+        }
+        return Triple(word, earlier, later)
     }
 }
