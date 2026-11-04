@@ -51,6 +51,12 @@ object Speech {
         if (ready) speak(sentence) else waiting = sentence
     }
 
+    /** An answer the driver asked for (Talk): spoken even if the voice for drive summaries is off. */
+    fun reply(context: Context, sentence: String) {
+        init(context)
+        if (ready) speak(sentence) else waiting = sentence
+    }
+
     /** Play sample (Settings): says a sentence with the chosen voice, even if the voice is off. */
     fun sample(context: Context) {
         init(context)

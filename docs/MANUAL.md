@@ -233,7 +233,17 @@ The AI is told to trust the verdicts, to report only this drive's findings, and 
   The drives are numbered **D1** (oldest) to **D5**, and the AI uses the same numbers. Car Dash works out the totals and trends itself (total km and fuel, best and worst fuel use, battery voltages over the drives, how often each warning came up) and the AI explains them. An answer takes a little longer than for one drive. **Share** (below the answer) sends one ZIP with these drives and, once you've asked, the question, the answer and exactly what the AI received.
 - **Show prompt** (under an answer) shows exactly what the AI received, for the curious.
 
-### Good to know
+### Talk: ask out loud, even while driving
+Tap **Talk** (the microphone button on the car screen, or **🎤 Talk** on the Dash) and ask, for example:
+- "How far can I go?"
+- "Is the engine warm yet?"
+- "Is anything wrong?"
+- "How's the battery?"
+
+Car Dash listens until you stop speaking, then answers out loud in a sentence or two, through the car's speakers. On the car screen it uses **the car's microphone**; on the phone, the phone's. The first time, Android asks to allow the microphone.
+
+The answer comes from the AI, which gets the car's **readings right now** with Car Dash's own verdicts (normal, watch, check), the fuel and range, this trip and any warnings. The first question of a drive takes longer (the AI loads, about 10 seconds); after that, a few seconds. If you tap Talk and say nothing, it stops by itself after a few seconds. Talk needs Android 13 or newer and the AI model.
+
 - Loading the model takes a few seconds the first time. A summary takes about 10–30 seconds, depending on the phone.
 - The AI never runs while Car Dash reads your car during a drive, so the recording always comes first. It's switched off again a few minutes after the last question, to free memory.
 - **It can make mistakes.** Small models sometimes phrase things oddly or get details wrong. The **report** is the reliable part; the AI explains it.
@@ -299,6 +309,7 @@ When fuel is low, the Dash reminds you to fill to the click and log it, until Ca
 
 - **Everything stays on your phone:** drives, reports, AI summaries and car settings, in the app's private storage. Uninstalling the app deletes them.
 - **Nothing is sent anywhere.** Car Dash has no account, no ads and no analytics, and the AI runs on the phone. Files leave the phone only when **you** tap **Share**.
+- **Talk:** the microphone is used only while Talk listens. Your words are turned into text by the phone's speech recognition, on the phone itself where it can. If the phone has no offline English for that, Android's standard speech service is used, which may send the recording to Google to recognise it.
 - **Read-only:** Car Dash only reads standard diagnostic data. It never writes to, resets or clears anything in your car (including fault codes).
 - **Bluetooth** is used only to talk to the adapter you chose.
 

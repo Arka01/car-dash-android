@@ -247,6 +247,18 @@ temperatures, unreliable outside-air reading, the owner's limits) and one line p
 
 ## On-phone AI
 
+**Talk** (`ai/Talk.kt`, `ai/Mic.kt`): **Talk** on the car screen (action strip; car mic via `CarAudioRecord`, car app
+API level 5) or **🎤 Talk** on the Dash (phone mic). Needs Android 13+ (speech recognition from recorded sound),
+`RECORD_AUDIO` (asked on first use) and the model. Steps: listen (16 kHz PCM; background noise from the first 200 ms,
+speech = 2.5× that and > 300 for 100 ms; stops after 1.2 s quiet or 12 s; nothing in 5 s = quiet stop, e.g. a ghost tap;
+music paused with audio focus) → speech to text (`SpeechRecognizer` with `EXTRA_AUDIO_SOURCE`: on-device en-IN, then
+on-device default, then the standard service en-IN, which may go online) → the model (preloaded while listening) gets
+**LIVE NOW** (`Talk.live`: speed/rpm/gear, temperatures with `Rules` levels, engine state, battery, fuel/range,
+consumption, trip, alerts, trouble codes) + the question, answers in ≤ 120 tokens → spoken with `Speech.reply` (even
+with the voice off). **Talk runs while LIVE reads the car** (the only AI use that does). Each step goes to the car's
+`talk_log.txt` (24-hour times, which recognizer, timings, reading rate before/after), included in drive ZIPs, so its
+effect on the reading rate can be checked against the drive CSV.
+
 A language model that runs **on the phone itself** (Google's LiteRT-LM engine, the one inside the
 AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet access.
 

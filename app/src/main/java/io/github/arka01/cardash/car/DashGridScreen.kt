@@ -6,7 +6,11 @@ import androidx.annotation.DrawableRes
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.constraints.ConstraintManager
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.car.app.CarToast
 import androidx.car.app.model.Action
+import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.CarColor
 import androidx.car.app.model.CarIcon
 import androidx.car.app.model.ForegroundCarColorSpan
@@ -23,6 +27,8 @@ import io.github.arka01.cardash.Dash
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.R
 import io.github.arka01.cardash.Snapshot
+import io.github.arka01.cardash.ai.CarMic
+import io.github.arka01.cardash.ai.Talk
 import io.github.arka01.cardash.logic.Calculations
 import io.github.arka01.cardash.logic.Level
 import io.github.arka01.cardash.logic.Rules
@@ -43,6 +49,9 @@ import java.util.Locale
  * What build 9 showed in the Tiago (2026-10-29): standard green, a custom colour (the phone's
  * terminal green) and icons all work. Display only: no buttons and nothing tappable, because the
  * Tiago's touch screen makes random ghost taps. Reading starts by itself (CarControls).
+ *
+ * Talk (2026-11-04, owner's choice): the one exception, a Talk button in the corner. A ghost tap only
+ * starts listening, which stops quietly when nobody speaks.
  *
  * Android Auto allows only a few "new" screens per task, but an update counts as a free refresh
  * if the number of tiles and every title stay the same. So the tiles are fixed; only values change.
@@ -146,7 +155,7 @@ private fun Level.carColor(): CarColor = when (this) {
     Level.ALARM -> CarColor.RED
 }
 
-/** The car screen: a scrolling grid of tiles. Nothing on it can be tapped. */
+/** The car screen: a scrolling grid of tiles; the only thing to tap is Talk. */
 class DashGridScreen(carContext: CarContext) : Screen(carContext) {
     private var setupNeeded: String? = null
     private val icons = HashMap<Int, CarIcon>()
@@ -193,8 +202,34 @@ class DashGridScreen(carContext: CarContext) : Screen(carContext) {
         return GridTemplate.Builder()
             .setTitle("Car Dash")
             .setHeaderAction(Action.APP_ICON)
+            .setActionStrip(ActionStrip.Builder().addAction(talkAction).build())
             .setSingleList(items.build())
             .build()
+    }
+
+    private val talkAction: Action by lazy {
+        Action.Builder()
+            .setTitle("Talk")
+            .setIcon(icon(R.drawable.ic_mic))
+            .setOnClickListener { talk() }
+            .build()
+    }
+
+    /** Talk with the car's microphone: needs Android Auto's car app level 5 and the microphone permission. */
+    private fun talk() {
+        if (carContext.carAppApiLevel < CarAppApiLevels.LEVEL_5) {
+            CarToast.makeText(carContext, "Talk needs a newer Android Auto", CarToast.LENGTH_LONG).show()
+            return
+        }
+        if (carContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            carContext.requestPermissions(listOf(Manifest.permission.RECORD_AUDIO)) { granted, _ ->
+                if (Manifest.permission.RECORD_AUDIO in granted) talk()
+            }
+            return
+        }
+        val why = runCatching { Talk.start(carContext, CarMic(carContext)) { CarToast.makeText(carContext, it, CarToast.LENGTH_SHORT).show() } }
+            .getOrElse { "Talk failed: ${it.message}" }
+        why?.let { CarToast.makeText(carContext, it, CarToast.LENGTH_LONG).show() }
     }
 
     private fun icon(@DrawableRes id: Int): CarIcon =

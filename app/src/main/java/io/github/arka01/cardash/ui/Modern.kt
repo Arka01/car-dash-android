@@ -58,6 +58,7 @@ import io.github.arka01.cardash.Snapshot
 import io.github.arka01.cardash.ai.AiState
 import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.ai.LocalLlm
+import io.github.arka01.cardash.ai.Talk
 import io.github.arka01.cardash.driveLabel
 import io.github.arka01.cardash.logic.Calculations
 import io.github.arka01.cardash.logic.DriveReport
@@ -232,6 +233,7 @@ internal fun DashScreen(s: Snapshot, now: Long, actions: Actions) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     MainCard(s, now)
                     AlertCard(s)
+                    TalkCard(actions)
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ValueGrid(s, now, actions)
@@ -245,6 +247,7 @@ internal fun DashScreen(s: Snapshot, now: Long, actions: Actions) {
             ) {
                 MainCard(s, now)
                 AlertCard(s)
+                TalkCard(actions)
                 ValueGrid(s, now, actions)
                 DashDetails(s, now, actions)   // scroll down: engine, fuel, battery, trip, all sensors
             }
@@ -321,6 +324,25 @@ private fun RpmBar(rpm: Double?, scale: Double, shift: Double?, redline: Double?
                 size = Size(w * 0.76f, size.height),
                 cornerRadius = CornerRadius(3f, 3f),
             )
+        }
+    }
+}
+
+/** Talk: ask out loud and hear the answer (ai/Talk); also from the car screen's Talk button. */
+@Composable
+private fun TalkCard(actions: Actions) {
+    val status by Talk.state.collectAsState()
+    val last by Talk.last.collectAsState()
+    Card(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button("🎤 Talk", NEON, filled = status.isNotEmpty(), onClick = actions.talk)
+            Spacer(Modifier.width(12.dp))
+            Txt(status.ifEmpty { "Ask out loud, e.g. \"How far can I go?\"" }, 14.sp, if (status.isEmpty()) FAINT else WARN,
+                modifier = Modifier.weight(1f))
+        }
+        if (last.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Txt(last, 14.sp, MUTED)
         }
     }
 }

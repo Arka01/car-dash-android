@@ -44,6 +44,21 @@ class MainActivity : ComponentActivity() {
     private var aiSettings by mutableStateOf<AiSettings?>(null)
 
     /** IMPORT MODEL: Android's file picker; the chosen .litertlm file is copied into the app. */
+    /** Talk (phone): asks for the microphone the first time, then starts. */
+    private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) talk() else toast("Talk needs the microphone")
+    }
+
+    private fun talk() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        val why = runCatching { io.github.arka01.cardash.ai.Talk.start(this, io.github.arka01.cardash.ai.PhoneMic()) }
+            .getOrElse { "Talk failed: ${it.message}" }
+        why?.let { toast(it) }
+    }
+
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) LocalLlm.importModel(this, uri)?.let { toast(it) }
     }
@@ -74,6 +89,7 @@ class MainActivity : ComponentActivity() {
             askDrive = ::askAboutDrive,
             askDrives = ::askAboutDrives,
             shareDrives = ::shareDrives,
+            talk = ::talk,
             chooseCar = ::switchCar,
             newCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = true) } },
             scanCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
@@ -206,9 +222,14 @@ class MainActivity : ComponentActivity() {
             .map { java.io.File(csv.parentFile, it) }.filter { it.exists() }
     }
 
-    /** The car's fuel memory (fuel left, fill-ups, averages): lets the developer check the fuel numbers. */
+    /**
+     * The car's fuel memory (fuel left, fill-ups, averages) and Talk log (questions, answers, timings):
+     * let the developer check the fuel numbers and how Talk affects the readings.
+     */
     private fun fuelState(csv: java.io.File): List<java.io.File> =
-        listOfNotNull(csv.parentFile?.parentFile?.let { java.io.File(it, "fuel_state.json") }?.takeIf { it.exists() })
+        listOf("fuel_state.json", "talk_log.txt").mapNotNull { name ->
+            csv.parentFile?.parentFile?.let { java.io.File(it, name) }?.takeIf { it.exists() }
+        }
 
     /** Packs [files] and [texts] (name to content) into one ZIP in the background, then opens Android's share menu. */
     private fun shareZip(zipName: String, subject: String, title: String, files: List<java.io.File>, texts: Map<String, String>) {

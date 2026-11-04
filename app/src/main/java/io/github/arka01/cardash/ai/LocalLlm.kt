@@ -304,11 +304,11 @@ object LocalLlm {
                     val words = answer.split(Regex("\\s+")).count { it.isNotBlank() }
                     status("done")
                     CrashReport.step("done: ${answer.length} characters")
-                    onDone?.invoke(answer.toString())
-                    store.update {
+                    store.update {   // before onDone, so it can log the timings (Talk)
                         it.copy(stats = String.format(Locale.US, "%.1f s (first words after %.1f s) · %d words · %s",
                             total, wait, words, if (engineGpu == true) "GPU" else "CPU"))
                     }
+                    onDone?.invoke(answer.toString())
                 }
             } catch (e: CancellationException) {
                 status("stopped")
@@ -326,6 +326,19 @@ object LocalLlm {
             }
         }
         return null
+    }
+
+    /** Talk: starts loading the model while the driver is still speaking, so the answer comes sooner. */
+    fun preload(context: Context) {
+        val app = context.applicationContext
+        val model = modelFile(app) ?: return
+        if (store.value.busy) return
+        val gpu = settings(app).gpu
+        scope.launch {
+            runCatching { lock.withLock { load(app, model, gpu) } }
+            if (!store.value.busy) status("ready")
+            scheduleUnload()
+        }
     }
 
     /** STOP: ends an answer being written, or an import. */
