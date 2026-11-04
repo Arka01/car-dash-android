@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
             replayDrive = { Dash.startReplay(this, it) },
             askDrive = ::askAboutDrive,
             askDrives = ::askAboutDrives,
+            shareDrives = ::shareDrives,
             chooseCar = ::switchCar,
             newCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = true) } },
             scanCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
@@ -160,40 +161,87 @@ class MainActivity : ComponentActivity() {
      * carries a checksum, so a damaged copy fails to unzip instead of giving wrong data.
      */
     private fun shareDrive(csv: java.io.File) {
-        val base = csv.name.removeSuffix(".csv")
-        val files = listOf(csv.name, "${base}_profile.json", "${base}_report.json", "${base}_summary.txt")
-            .map { java.io.File(csv.parentFile, it) }.filter { it.exists() }
+        val files = driveFiles(csv)
         if (files.isEmpty()) {
             toast("This drive's files are gone")
             return
         }
-        // The car's fuel memory (fuel left, fill-ups, averages): lets the developer check the fuel numbers.
-        val extras = listOfNotNull(csv.parentFile?.parentFile?.let { java.io.File(it, "fuel_state.json") }?.takeIf { it.exists() })
+        shareZip("CarDash_${csv.name.removeSuffix(".csv")}.zip", "Car Dash drive ${driveLabel(csv.name)}", "Share drive",
+            files + fuelState(csv), emptyMap())
+    }
+
+    /**
+     * Share (Drives → Ask about several drives): one ZIP with the chosen drives' files, the car's
+     * fuel_state.json and ai_answer.txt (question, answer and the exact prompt, D1 … tags explained).
+     */
+    private fun shareDrives(csvNames: List<String>) {
+        val csvs = Dash.drives(this).filter { it.name in csvNames }.sortedBy { it.name }   // oldest first, as D1 …
+        val files = csvs.flatMap { driveFiles(it) }
+        if (files.isEmpty()) {
+            toast("These drives' files are gone")
+            return
+        }
+        val ai = LocalLlm.state.value
+        val answered = DriveSummary.lastAskDrive.value == DriveSummary.SEVERAL && ai.question.isNotEmpty() && !ai.busy
+        val text = if (!answered) emptyMap() else mapOf("ai_answer.txt" to buildString {
+            append("Car Dash ${BuildConfig.VERSION_NAME} · question about ${csvs.size} drive${if (csvs.size == 1) "" else "s"}\n")
+            append("Shared ${io.github.arka01.cardash.logic.TimeFormat.day(System.currentTimeMillis())}\n\n")
+            append("DRIVES\n")
+            csvs.forEachIndexed { i, f -> append("  ${io.github.arka01.cardash.logic.DriveTotals.tag(i)}  ${driveLabel(f.name)}  (${f.name})\n") }
+            append("\nQUESTION\n").append(ai.question).append("\n\n")
+            append("ANSWER\n").append(DriveSummary.plain(ai.answer)).append("\n")
+            if (ai.stats.isNotEmpty()) append("(").append(ai.stats).append(")\n")
+            append("\nSYSTEM INSTRUCTION\n").append(ai.sentSystem).append("\n\n")
+            append("MESSAGE\n").append(ai.sentPrompt).append("\n")
+        })
+        val first = csvs.first().name.removePrefix("drive_").removeSuffix(".csv")
+        shareZip("CarDash_${csvs.size}_drives_from_$first.zip", "Car Dash: ${csvs.size} drives" + if (answered) " + AI answer" else "",
+            "Share drives", files + fuelState(csvs.first()), text)
+    }
+
+    /** A drive's recording, profile, report and AI summary (the ones that exist). */
+    private fun driveFiles(csv: java.io.File): List<java.io.File> {
+        val base = csv.name.removeSuffix(".csv")
+        return listOf(csv.name, "${base}_profile.json", "${base}_report.json", "${base}_summary.txt")
+            .map { java.io.File(csv.parentFile, it) }.filter { it.exists() }
+    }
+
+    /** The car's fuel memory (fuel left, fill-ups, averages): lets the developer check the fuel numbers. */
+    private fun fuelState(csv: java.io.File): List<java.io.File> =
+        listOfNotNull(csv.parentFile?.parentFile?.let { java.io.File(it, "fuel_state.json") }?.takeIf { it.exists() })
+
+    /** Packs [files] and [texts] (name to content) into one ZIP in the background, then opens Android's share menu. */
+    private fun shareZip(zipName: String, subject: String, title: String, files: List<java.io.File>, texts: Map<String, String>) {
         Thread {
             val zip = runCatching {
                 val dir = java.io.File(cacheDir, "share").apply { mkdirs() }
-                dir.listFiles()?.forEach { it.delete() }   // only the latest shared drive is kept
-                java.io.File(dir, "CarDash_$base.zip").also { out ->
+                dir.listFiles()?.forEach { it.delete() }   // only the latest shared ZIP is kept
+                java.io.File(dir, zipName).also { out ->
                     java.util.zip.ZipOutputStream(out.outputStream().buffered()).use { z ->
-                        (files + extras).forEach { f ->
+                        files.distinctBy { it.path }.forEach { f ->
                             z.putNextEntry(java.util.zip.ZipEntry(f.name).apply { time = f.lastModified() })
                             f.inputStream().use { it.copyTo(z) }
+                            z.closeEntry()
+                        }
+                        texts.forEach { (name, content) ->
+                            z.putNextEntry(java.util.zip.ZipEntry(name))
+                            z.write(content.toByteArray(Charsets.UTF_8))
                             z.closeEntry()
                         }
                     }
                 }
             }
             runOnUiThread {
-                val file = zip.getOrNull() ?: return@runOnUiThread toast("Couldn't pack the drive: ${zip.exceptionOrNull()?.message}")
+                val file = zip.getOrNull() ?: return@runOnUiThread toast("Couldn't pack the files: ${zip.exceptionOrNull()?.message}")
                 val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "application/zip"
-                    putExtra(Intent.EXTRA_SUBJECT, "Car Dash drive ${driveLabel(csv.name)}")
+                    putExtra(Intent.EXTRA_SUBJECT, subject)
                     putExtra(Intent.EXTRA_STREAM, uri)
                     clipData = ClipData.newRawUri(file.name, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                startActivity(Intent.createChooser(send, "Share drive"))
+                startActivity(Intent.createChooser(send, title))
             }
         }.start()
     }

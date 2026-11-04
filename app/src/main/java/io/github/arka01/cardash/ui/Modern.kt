@@ -581,6 +581,15 @@ private fun SeveralDrivesScreen(items: List<DriveItem>, actions: Actions, back: 
                 if (mine) AnswerBlock(ai)
             }
         }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Txt("Share", 13.sp, MUTED, FontWeight.SemiBold)
+                Txt(if (mine && !ai.busy) "One ZIP: these drives' files, plus the question, the answer and the prompt."
+                    else "One ZIP with these drives' files. Ask a question first to include the answer.", 13.sp, FAINT)
+                Spacer(Modifier.height(8.dp))
+                Button("Share", NEON) { actions.shareDrives(items.map { it.csv.name }) }
+            }
+        }
     }
 }
 

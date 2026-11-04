@@ -230,7 +230,7 @@ The AI is told to trust the verdicts, to report only this drive's findings, and 
   - "Is my battery getting weaker?"
   - "Which was my worst drive, and why?"
 
-  The drives are numbered **D1** (oldest) to **D5**, and the AI uses the same numbers. Car Dash works out the totals and trends itself (total km and fuel, best and worst fuel use, battery voltages over the drives, how often each warning came up) and the AI explains them. An answer takes a little longer than for one drive.
+  The drives are numbered **D1** (oldest) to **D5**, and the AI uses the same numbers. Car Dash works out the totals and trends itself (total km and fuel, best and worst fuel use, battery voltages over the drives, how often each warning came up) and the AI explains them. An answer takes a little longer than for one drive. **Share** (below the answer) sends one ZIP with these drives and, once you've asked, the question, the answer and exactly what the AI received.
 - **Show prompt** (under an answer) shows exactly what the AI received, for the curious.
 
 ### Good to know
