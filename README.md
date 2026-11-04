@@ -354,7 +354,7 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 - A reconnect during the drive continues the same file. A run that never connected leaves no file.
 - Files are kept per car in `files/cars/<car>/recordings/` (drives from builds 5-6 were moved
   to the Tiago's folder).
-- **Drives → a drive → Share** sends that drive (recording, profile, report, AI summary), e.g. by email.
+- **Drives → a drive → Share** sends that drive as one ZIP `CarDash_drive_<date>_<time>.zip` (recording, profile, report, AI summary), e.g. by email. A ZIP because some apps convert a loose CSV on the way; the ZIP also has a checksum per file, so a damaged copy fails to unzip instead of giving wrong data.
 - **Drives → a drive → Replay** plays it again, with all calculations (nothing is saved).
   About 1 MB per 5 minutes.
 - The screen stays on while LIVE / DEMO / TEST runs: a locked phone may pause the app,

@@ -169,7 +169,7 @@ Car Dash asks the car for several values at once, which makes the important valu
 
 **Drives** lists your drives, newest first. Each card shows the date, duration, distance and consumption, plus the drive's overall verdict: **✓ OK**, **▲ watch** or **■ check**. Tap a drive to open its report:
 
-- **Share:** sends the drive (recording, report and AI summary), for example by email.
+- **Share:** sends the drive as one ZIP file (recording, report and AI summary), for example by email. Unzip it on the computer; if a copy got damaged on the way, unzipping says so.
 - **Replay:** plays the drive again on the Dash.
 - **AI summary:** the short spoken text and a longer explanation. Tap **Write again** to have it rewritten.
 - **Ask about this drive:** see section 8.

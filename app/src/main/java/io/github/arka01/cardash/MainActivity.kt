@@ -152,7 +152,11 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(send, "Share readings"))
     }
 
-    /** Share (in a drive's report): its recording plus profile, report and AI summary, e.g. by email. */
+    /**
+     * Share (in a drive's report): one ZIP with its recording, profile, report and AI summary, e.g. by email.
+     * A ZIP so apps pass the files on untouched (a loose CSV gets converted by some apps) and each file
+     * carries a checksum, so a damaged copy fails to unzip instead of giving wrong data.
+     */
     private fun shareDrive(csv: java.io.File) {
         val base = csv.name.removeSuffix(".csv")
         val files = listOf(csv.name, "${base}_profile.json", "${base}_report.json", "${base}_summary.txt")
@@ -161,17 +165,33 @@ class MainActivity : ComponentActivity() {
             toast("This drive's files are gone")
             return
         }
-        val uris = ArrayList(files.map { FileProvider.getUriForFile(this, "$packageName.files", it) })
-        val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = "*/*"
-            putExtra(Intent.EXTRA_SUBJECT, "Car Dash drive ${driveLabel(csv.name)}")
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-            clipData = ClipData.newRawUri(files.first().name, uris.first()).also { clip ->
-                uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+        Thread {
+            val zip = runCatching {
+                val dir = java.io.File(cacheDir, "share").apply { mkdirs() }
+                dir.listFiles()?.forEach { it.delete() }   // only the latest shared drive is kept
+                java.io.File(dir, "CarDash_$base.zip").also { out ->
+                    java.util.zip.ZipOutputStream(out.outputStream().buffered()).use { z ->
+                        files.forEach { f ->
+                            z.putNextEntry(java.util.zip.ZipEntry(f.name).apply { time = f.lastModified() })
+                            f.inputStream().use { it.copyTo(z) }
+                            z.closeEntry()
+                        }
+                    }
+                }
             }
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        startActivity(Intent.createChooser(send, "Share drive"))
+            runOnUiThread {
+                val file = zip.getOrNull() ?: return@runOnUiThread toast("Couldn't pack the drive: ${zip.exceptionOrNull()?.message}")
+                val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_SUBJECT, "Car Dash drive ${driveLabel(csv.name)}")
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = ClipData.newRawUri(file.name, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(send, "Share drive"))
+            }
+        }.start()
     }
 
     // ---------------------------------------------------------------- cars and their tools

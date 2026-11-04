@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Folders the DEV tab may share: files/dev (key tests), files/cars/<car>/recordings (drives). -->
+<!-- Folders the app may share: files/dev (key tests), files/cars/<car>/recordings (drives), cache/share (zipped drives). -->
 <paths>
     <files-path name="dev" path="dev/" />
     <files-path name="cars" path="cars/" />
+    <cache-path name="share" path="share/" />
 </paths>
