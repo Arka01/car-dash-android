@@ -6,6 +6,7 @@ import io.github.arka01.cardash.Speech
 import io.github.arka01.cardash.car.CarControls
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.logic.DriveReport
+import io.github.arka01.cardash.logic.DriveTotals
 import io.github.arka01.cardash.logic.FuelReport
 import io.github.arka01.cardash.logic.Verdict
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,6 +63,39 @@ object DriveSummary {
         "notes and earlier drives are background, not findings of this drive. FUEL NOW is the tank today, not at " +
         "the time of the drive. If the report doesn't contain the " +
         "answer, say so. Answer in plain words, briefly."
+
+    /** [lastAskDrive] when the last question was about several drives (Drives → Ask AI). */
+    const val SEVERAL = "several drives"
+
+    private const val SYSTEM_SEVERAL = "You are a car mechanic answering the owner's question about several drives " +
+        "of their car, tagged D1 (oldest) to the newest. Use only the totals, trends, drive reports and notes given. " +
+        "The totals and trends were calculated by the app: trust them, never recalculate them or judge a number " +
+        "yourself. The verdicts (OK, WATCH, CHECK) were decided by the app with this car's own rules; OK means normal. " +
+        "When you mention a drive, give its tag and date. The car notes are background, not findings. FUEL NOW is " +
+        "the tank today. RPM is how fast the engine turns, not the car's speed. A car battery is charged by driving: " +
+        "if it's low on charge, suggest longer drives (or a battery charger if it stays low); never say to top it up. " +
+        "If the answer isn't in the data, say so. Answer in plain words, briefly."
+    private const val SEVERAL_TOKENS = 700         // answer; the prompt gets the rest of the model's 4096
+    private const val SEVERAL_FULL_CHARS = 8500    // longer than this: one line per drive instead of its report
+
+    /**
+     * Ask about several drives (up to [DriveTotals.MAX_DRIVES]): totals and trends calculated by the
+     * app (logic/DriveTotals) plus each drive's report, tagged D1 (oldest) … Returns why not, or null when started.
+     */
+    fun askSeveral(context: Context, question: String, car: CarProfile, reports: List<DriveReport>, fuel: FuelReport?): String? {
+        fun prompt(compact: Boolean) = buildString {
+            append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
+            append(fuelText(fuel)).append("\n")
+            append("TOTALS AND TRENDS (calculated by the app, trust them)\n").append(DriveTotals.totals(reports)).append("\n")
+            append("THE DRIVES (findings are only the WATCH / CHECK lines)\n").append(DriveTotals.drives(reports, compact)).append("\n")
+            append("QUESTION: ").append(question)
+        }
+        val full = prompt(compact = false)
+        val text = if (full.length + SYSTEM_SEVERAL.length > SEVERAL_FULL_CHARS) prompt(compact = true) else full
+        val why = LocalLlm.ask(context, text, system = SYSTEM_SEVERAL, maxTokens = SEVERAL_TOKENS, shown = question)
+        if (why == null) lastAsk.value = SEVERAL
+        return why
+    }
 
     /**
      * Ask: [question] with the chosen drive's report as context (grounded like the summary), so

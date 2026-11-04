@@ -167,7 +167,7 @@ Car Dash asks the car for several values at once, which makes the important valu
 
 ## 7. Drive reports
 
-**Drives** lists your drives, newest first. Each card shows the date, duration, distance and consumption, plus the drive's overall verdict: **✓ OK**, **▲ watch** or **■ check**. Tap a drive to open its report:
+**Drives** lists your drives, newest first. Each card shows the date and time (e.g. **Wed 4 Nov 2026 · 9:10 AM**), duration, distance, kind of drive and consumption, plus the drive's overall verdict: **✓ OK**, **▲ watch** or **■ check**. Tap a drive to open its report:
 
 - **Share:** sends the drive as one ZIP file (recording, report, AI summary and the car's fuel data), for example by email. Unzip it on the computer; if a copy got damaged on the way, unzipping says so.
 - **Replay:** plays the drive again on the Dash.
@@ -225,6 +225,12 @@ The AI is told to trust the verdicts, to report only this drive's findings, and 
   - "Why is the battery a watch?"
   - "Was my fuel use OK?"
   - "Do I need to fuel up?" (the AI also gets the fuel left in the tank right now)
+- **Ask about several drives (up to 5):** in **Drives**, tap **Ask AI** (or press and hold a drive) and tap the drives you want: each gets a tick. **Last 5** picks the newest five, **Clear** unticks all, **✕** leaves. Then tap **Ask →** and **Ask a question**. For example:
+  - "Is my fuel use getting better?"
+  - "Is my battery getting weaker?"
+  - "Which was my worst drive, and why?"
+
+  The drives are numbered **D1** (oldest) to **D5**, and the AI uses the same numbers. Car Dash works out the totals and trends itself (total km and fuel, best and worst fuel use, battery voltages over the drives, how often each warning came up) and the AI explains them. An answer takes a little longer than for one drive.
 - **Show prompt** (under an answer) shows exactly what the AI received, for the curious.
 
 ### Good to know

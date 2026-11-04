@@ -128,6 +128,15 @@ object DriveReports {
         return Triple(Cars.active(app), report, earlier)
     }
 
+    /** For a question about several drives (CSV file names): the chosen car and their reports. Null if none has one. */
+    fun forSeveral(context: Context, csvNames: List<String>): Pair<CarProfile, List<DriveReport>>? {
+        val app = context.applicationContext
+        Cars.init(app)
+        val reports = Dash.drives(app).filter { it.name in csvNames }.mapNotNull { load(it) }
+        if (reports.isEmpty()) return null
+        return Cars.active(app) to reports
+    }
+
     private fun load(csv: File): DriveReport? = runCatching {
         reportFile(csv).takeIf { it.exists() }?.let { DriveReport.fromJson(JSONObject(it.readText())) }
     }.getOrNull()

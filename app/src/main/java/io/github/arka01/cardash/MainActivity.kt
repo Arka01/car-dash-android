@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
             shareDrive = ::shareDrive,
             replayDrive = { Dash.startReplay(this, it) },
             askDrive = ::askAboutDrive,
+            askDrives = ::askAboutDrives,
             chooseCar = ::switchCar,
             newCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = true) } },
             scanCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
@@ -290,6 +291,27 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
+    /** Ask about several drives (Drives → Ask AI): their reports plus totals and trends worked out by the app. */
+    private fun askAboutDrives(csvNames: List<String>) {
+        val input = EditText(this).apply {
+            hint = "e.g. Is my fuel use getting better?"
+            minLines = 3
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Ask about ${csvNames.size} drive${if (csvNames.size == 1) "" else "s"}")
+            .setView(input)
+            .setPositiveButton("Ask") { _, _ ->
+                val q = input.text.toString().trim()
+                if (q.isEmpty()) return@setPositiveButton
+                val ctx = DriveReports.forSeveral(this, csvNames)
+                val why = if (ctx == null) "These drives have no reports yet" else DriveSummary.askSeveral(this, q, ctx.first, ctx.second, DriveReports.fuelNow(ctx.first))
+                why?.let { toast(it) }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     /** Car screen: change tank size, engine size, shift light or red line. */
     private fun editCar(key: String) {
         val car = Cars.active(this)
@@ -452,9 +474,9 @@ class MainActivity : ComponentActivity() {
 
 private const val DECIMAL = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
 
-/** "drive_20261031_191520.csv" -> "Sat 31 Oct · 19:15". */
+/** "drive_20261031_191520.csv" -> "Sat 31 Oct 2026 · 7:15 PM". */
 fun driveLabel(fileName: String): String = runCatching {
     val stamp = fileName.removePrefix("drive_").removeSuffix(".csv")
     val date = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).parse(stamp)!!
-    java.text.SimpleDateFormat("EEE d MMM · HH:mm", java.util.Locale.UK).format(date)
+    io.github.arka01.cardash.logic.TimeFormat.day(date.time)
 }.getOrDefault(fileName)

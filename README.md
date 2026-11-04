@@ -101,7 +101,7 @@ LIVE / STOP; tap an entry, or tap the dimmed screen or press Back to close it.
 |---|---|
 | **Car (top)** | The car in use; tap it to switch cars or **+ Add a new car** |
 | **Dash** | Speed, gear, RPM bar, warnings, value cards (tap **Fuel left** to log a fill-up); scroll down for **Details**: engine (fault codes, torque, power, heat soak, boost), temperature trends, fuel (with **Log a fill-up**), battery, trip, then **All sensors** (raw values, folded) |
-| **Drives** | Every recorded drive with its report: AI summary, **Ask about this drive**, **Share**, **Replay** (see "Drive reports") |
+| **Drives** | Every recorded drive with its report: AI summary, **Ask about this drive**, **Share**, **Replay** (see "Drive reports"); **Ask AI** (or long-press) = select mode for asking about up to 5 drives together |
 | **My car** | This car: details and VIN, **gears learned automatically**, fuel (tank size, average, fill-ups), engine limits (editable), **Scan car computers** |
 | **Settings** | Connection (choose the adapter), voice on/off, the on-phone AI (model, advanced settings), demo drive, version and updates |
 | **Support** | Connection status, crash report (if the app closed unexpectedly), connection log and **Share log** |
@@ -259,7 +259,13 @@ AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet a
 
 **Use:** in **Drives → a drive → Ask about this drive**, type a question. That drive's report, the
 car notes, earlier drives and the fuel left right now ("FUEL NOW") go with it, so "How was my drive?" or "Why is the battery a WATCH?"
-work (it only knows what's in that report). With a model imported, **Import model** reads
+work (it only knows what's in that report). **Several drives:** **Drives → Ask AI** (or long-press a card) → tick up to 5
+(**Last 5 / Clear / ✕**, back gesture leaves) → **Ask →** → **Ask a question**. The prompt (`DriveSummary.askSeveral`) has the
+car notes, FUEL NOW, **TOTALS AND TRENDS** calculated in code (`logic/DriveTotals`: totals, overall L/100 km = litres ÷ km,
+best/worst drive ≥ 2 km, trends earlier half vs later half: fuel ±10 %, resting battery ±0.15 V, start dip ±0.3 V; warm-up
+average; highest speed/rpm/coolant; each WATCH/CHECK with the drives it came up on), then each drive's report without DATA,
+tagged D1 (oldest) … D5; one line per drive instead if the message would pass 8,500 characters. Answer up to 700 tokens.
+All times shown are 12-hour (`logic/TimeFormat`); recordings and logs keep 24-hour. With a model imported, **Import model** reads
 **Replace model**; the AI's settings are under **Settings → AI → Advanced settings**. **Show prompt** (under an answer) shows exactly what the
 model got: the system instruction and the whole message (for Ask: car notes, earlier drives, the
 drive report, FUEL NOW and the question; for drive summaries: the drive report, FUEL NOW only when the range is under 50 km, plus the car notes only when there's a WATCH/CHECK to explain, no earlier drives, because the small model repeated their findings as this drive's). The answer appears word by word, then the time it took.

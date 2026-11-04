@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -54,15 +55,18 @@ import io.github.arka01.cardash.DriveItem
 import io.github.arka01.cardash.DriveReports
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
+import io.github.arka01.cardash.ai.AiState
 import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.ai.LocalLlm
+import io.github.arka01.cardash.driveLabel
 import io.github.arka01.cardash.logic.Calculations
+import io.github.arka01.cardash.logic.DriveReport
+import io.github.arka01.cardash.logic.DriveTotals
+import io.github.arka01.cardash.logic.TimeFormat
 import io.github.arka01.cardash.logic.Level
 import io.github.arka01.cardash.logic.Rules
 import io.github.arka01.cardash.logic.Values
 import io.github.arka01.cardash.logic.Verdict
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -170,8 +174,6 @@ internal fun Snapshot.fresh(pid: Int, now: Long): Double? {
 
 // ---------------------------------------------------------------- top bar
 
-private val clockFormat = SimpleDateFormat("HH:mm", Locale.US)
-
 /** ☰, the screen's name, the mode (LIVE / DEMO / …) and the clock; below: car state, car, reading rate. */
 @Composable
 internal fun TopBar(s: Snapshot, now: Long, title: String, openMenu: () -> Unit) {
@@ -191,7 +193,7 @@ internal fun TopBar(s: Snapshot, now: Long, title: String, openMenu: () -> Unit)
             Txt(title, 20.sp, NEON, FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Chip(mode, modeColor)
             Spacer(Modifier.width(10.dp))
-            Txt(clockFormat.format(Date(now)), 15.sp, MUTED, mono = true)
+            Txt(TimeFormat.clock(now), 15.sp, MUTED, mono = true)
         }
         val stateColor = when (s.carState) {
             CarState.ENGINE_ON -> NEON
@@ -402,16 +404,26 @@ private fun ValueCard(spec: ValueSpec, modifier: Modifier) {
 
 // ---------------------------------------------------------------- DRIVES
 
-private val driveDay = SimpleDateFormat("EEE d MMM · HH:mm", Locale.UK)
-
-/** The chosen car's drives, newest first, each as a card with its worst verdict; tap for the report. */
+/**
+ * The chosen car's drives, newest first, each as a card with its worst verdict; tap for the report.
+ * Select mode (Ask AI, or long-press a card; owner's design 2026-11-04): tap cards to choose up to
+ * [DriveTotals.MAX_DRIVES], then Ask → asks the AI about them together.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)   // combinedClickable, on older Compose
 @Composable
 internal fun DrivesScreen(s: Snapshot, actions: Actions) {
     val context = LocalContext.current
     val drives by DriveReports.items.collectAsState()
     val changes by DriveSummary.changes.collectAsState()
     var open by rememberSaveable { mutableStateOf<String?>(null) }   // the drive shown, by file name
+    var selecting by rememberSaveable { mutableStateOf(false) }
+    var picked by rememberSaveable { mutableStateOf("") }            // chosen drives' file names, "|"-separated
+    var asking by rememberSaveable { mutableStateOf(false) }         // the Ask screen for the chosen drives
     LaunchedEffect(s.car?.key) { DriveReports.refresh(context) }
+    val chosen = picked.split("|").filter { it.isNotEmpty() }
+    BackHandler(enabled = selecting && open == null) {
+        if (asking) asking = false else { selecting = false; picked = "" }
+    }
     BackHandler(enabled = open != null) { open = null }
 
     val shown = drives.firstOrNull { it.csv.name == open }
@@ -419,34 +431,154 @@ internal fun DrivesScreen(s: Snapshot, actions: Actions) {
         DriveReportScreen(shown, actions) { open = null }
         return
     }
+    if (asking) {
+        SeveralDrivesScreen(drives.filter { it.csv.name in chosen && it.report != null }, actions) { asking = false }
+        return
+    }
+    fun toggle(name: String) {
+        picked = when {
+            name in chosen -> chosen - name
+            chosen.size >= DriveTotals.MAX_DRIVES -> {
+                android.widget.Toast.makeText(context, "Up to ${DriveTotals.MAX_DRIVES} drives", android.widget.Toast.LENGTH_SHORT).show()
+                chosen
+            }
+            else -> chosen + name
+        }.joinToString("|")
+    }
+    Column(Modifier.fillMaxSize().background(BG)) {
+        LazyColumn(
+            Modifier.weight(1f),
+            contentPadding = PaddingValues(8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                if (!selecting) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Txt(s.car?.name ?: "", 14.sp, modifier = Modifier.weight(1f).padding(start = 6.dp))
+                        if (drives.any { it.report != null }) Button("Ask AI", NEON) { selecting = true }
+                    }
+                } else {
+                    Column(Modifier.padding(horizontal = 6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Txt("${chosen.size} selected", 18.sp, NEON, FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            Button("✕", MUTED) { selecting = false; picked = "" }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button("Last ${DriveTotals.MAX_DRIVES}", NEON) {
+                                picked = drives.filter { it.report != null }.take(DriveTotals.MAX_DRIVES).joinToString("|") { it.csv.name }
+                            }
+                            Button("Clear", MUTED) { picked = "" }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Txt("Tap drives to choose up to ${DriveTotals.MAX_DRIVES}, then Ask.", 12.sp, FAINT)
+                    }
+                }
+            }
+            if (drives.isEmpty()) item { Card(Modifier.fillMaxWidth()) { Txt("No drives recorded for this car yet.", 15.sp) } }
+            items(drives) { item ->
+                val r = item.report
+                val name = item.csv.name
+                val on = name in chosen
+                val hasSummary = remember(item.csv, changes) { DriveSummary.file(item.csv).exists() }
+                Card(
+                    Modifier.fillMaxWidth().combinedClickable(
+                        enabled = r != null,
+                        onClick = { if (selecting) toggle(name) else open = name },
+                        onLongClick = {
+                            if (!selecting) {
+                                selecting = true
+                                picked = ""
+                            }
+                            toggle(name)
+                        },
+                    ),
+                    border = if (selecting && on) NEON else CARD_BORDER,
+                    fill = if (selecting && on) NEON.copy(alpha = 0.08f) else CARD,
+                ) {
+                    if (r == null) {
+                        Txt(driveLabel(name), 16.sp, FAINT)
+                        Txt(if (item.failed) "too short for a report" else "calculating…", 13.sp, FAINT)
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (selecting) {
+                                Txt(if (on) "☑" else "☐", 22.sp, if (on) NEON else MUTED)
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Txt(TimeFormat.day(r.start), 17.sp, NEON, FontWeight.SemiBold)
+                                Txt(driveLine(r), 13.sp)
+                                if (hasSummary) Txt("AI summary", 12.sp, FAINT)
+                            }
+                            VerdictChip(r.verdicts.count { it.verdict == Verdict.CHECK }, r.verdicts.count { it.verdict == Verdict.WATCH })
+                        }
+                    }
+                }
+            }
+        }
+        if (selecting) {
+            Row(
+                Modifier.fillMaxWidth().background(CARD).padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Txt("${chosen.size} drive${if (chosen.size == 1) "" else "s"} selected", 15.sp, modifier = Modifier.weight(1f))
+                Button("Ask →", NEON, filled = true) {
+                    if (chosen.isEmpty()) {
+                        android.widget.Toast.makeText(context, "Choose at least one drive", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        asking = true
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** "36 min · 6.8 km · city · 11.8 L/100 km" */
+private fun driveLine(r: DriveReport) =
+    String.format(Locale.US, "%.0f min · %.1f km · %s", r.minutes, r.km, r.driveType) +
+        (r.lPer100?.let { String.format(Locale.US, " · %.1f L/100 km", it) } ?: "")
+
+/**
+ * Ask about the chosen drives together: the drives with their tags (D1 = oldest, as the AI gets
+ * them), the question and the answer (ai/DriveSummary.askSeveral).
+ */
+@Composable
+private fun SeveralDrivesScreen(items: List<DriveItem>, actions: Actions, back: () -> Unit) {
+    val ai by LocalLlm.state.collectAsState()
+    val lastAsk by DriveSummary.lastAskDrive.collectAsState()
+    val reports = DriveTotals.ordered(items.mapNotNull { it.report })
+    val mine = lastAsk == DriveSummary.SEVERAL && ai.question.isNotEmpty()
     LazyColumn(
         Modifier.fillMaxSize().background(BG),
         contentPadding = PaddingValues(8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item { Txt(s.car?.name ?: "", 14.sp, modifier = Modifier.padding(start = 6.dp)) }
-        if (drives.isEmpty()) item { Card(Modifier.fillMaxWidth()) { Txt("No drives recorded for this car yet.", 15.sp) } }
-        items(drives) { item ->
-            val r = item.report
-            val hasSummary = remember(item.csv, changes) { DriveSummary.file(item.csv).exists() }
-            Card(Modifier.fillMaxWidth().clickable(enabled = r != null) { open = item.csv.name }) {
-                if (r == null) {
-                    Txt(item.csv.name.removePrefix("drive_").removeSuffix(".csv"), 16.sp, FAINT)
-                    Txt(if (item.failed) "too short for a report" else "calculating…", 13.sp, FAINT)
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Txt(driveDay.format(Date(r.start)), 17.sp, NEON, FontWeight.SemiBold)
-                            Txt(
-                                String.format(Locale.US, "%.0f min · %.1f km", r.minutes, r.km) +
-                                    (r.lPer100?.let { String.format(Locale.US, " · %.1f L/100 km", it) } ?: ""),
-                                13.sp,
-                            )
-                            if (hasSummary) Txt("AI summary", 12.sp, FAINT)
-                        }
-                        VerdictChip(r.verdicts.count { it.verdict == Verdict.CHECK }, r.verdicts.count { it.verdict == Verdict.WATCH })
-                    }
+        item { Row { Button("‹ Drives", onClick = back) } }
+        item {
+            Txt("Ask about ${reports.size} drive${if (reports.size == 1) "" else "s"}", 22.sp, NEON, FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 6.dp))
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                reports.forEachIndexed { i, r ->
+                    if (i > 0) Spacer(Modifier.height(6.dp))
+                    Txt("${DriveTotals.tag(i)}  ${TimeFormat.day(r.start)}", 15.sp, NEON, FontWeight.SemiBold)
+                    Txt(driveLine(r), 13.sp)
                 }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Txt("Your question", 13.sp, MUTED, FontWeight.SemiBold)
+                Txt("e.g. \"Is my fuel use getting better?\" or \"Is my battery getting weaker?\"", 13.sp, FAINT)
+                Spacer(Modifier.height(8.dp))
+                if (mine && ai.busy) {
+                    Button("Stop", WARN, onClick = actions.aiStop)
+                } else {
+                    Button("Ask a question", NEON) { actions.askDrives(items.map { it.csv.name }) }
+                }
+                if (mine) AnswerBlock(ai)
             }
         }
     }
@@ -483,12 +615,8 @@ private fun DriveReportScreen(item: DriveItem, actions: Actions, back: () -> Uni
         }
         item {
             Column(Modifier.padding(horizontal = 6.dp)) {
-                Txt(driveDay.format(Date(r.start)), 22.sp, NEON, FontWeight.SemiBold)
-                Txt(
-                    String.format(Locale.US, "%.0f min · %.1f km", r.minutes, r.km) +
-                        (r.lPer100?.let { String.format(Locale.US, " · %.1f L/100 km", it) } ?: ""),
-                    14.sp,
-                )
+                Txt(TimeFormat.day(r.start), 22.sp, NEON, FontWeight.SemiBold)
+                Txt(driveLine(r), 14.sp)
             }
         }
         item {
@@ -563,7 +691,6 @@ private fun DriveReportScreen(item: DriveItem, actions: Actions, back: () -> Uni
 private fun AskCard(item: DriveItem, actions: Actions) {
     val ai by LocalLlm.state.collectAsState()
     val lastAsk by DriveSummary.lastAskDrive.collectAsState()
-    var showPrompt by rememberSaveable { mutableStateOf(false) }
     val mine = lastAsk == item.csv.name && ai.question.isNotEmpty() && ai.question != "Summary of the drive"
     Card(Modifier.fillMaxWidth()) {
         Txt("Ask about this drive", 13.sp, MUTED, FontWeight.SemiBold)
@@ -574,27 +701,32 @@ private fun AskCard(item: DriveItem, actions: Actions) {
         } else {
             Button("Ask a question", NEON) { actions.askDrive(item.csv.name) }
         }
-        if (mine) {
-            Spacer(Modifier.height(8.dp))
-            Txt("> ${ai.question}", 14.sp, FAINT)
-            if (ai.answer.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Txt(DriveSummary.plain(ai.answer), 15.sp, NEON)
-            } else if (ai.busy) {
-                Txt(ai.status, 13.sp, WARN)
-            }
-            if (ai.stats.isNotEmpty()) Txt(ai.stats, 12.sp, FAINT)
-            if (!ai.busy && ai.sentPrompt.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Button(if (showPrompt) "Hide prompt" else "Show prompt", MUTED) { showPrompt = !showPrompt }
-                if (showPrompt) {
-                    Spacer(Modifier.height(6.dp))
-                    Txt("SYSTEM INSTRUCTION", 12.sp, MUTED, FontWeight.SemiBold)
-                    Txt(ai.sentSystem, 12.sp, FAINT, mono = true)
-                    Txt("MESSAGE", 12.sp, MUTED, FontWeight.SemiBold)
-                    Txt(ai.sentPrompt, 12.sp, FAINT, mono = true)
-                }
-            }
+        if (mine) AnswerBlock(ai)
+    }
+}
+
+/** The question asked, the answer as it streams in, the time it took, and Show prompt (exactly what the model got). */
+@Composable
+private fun AnswerBlock(ai: AiState) {
+    var showPrompt by rememberSaveable { mutableStateOf(false) }
+    Spacer(Modifier.height(8.dp))
+    Txt("> ${ai.question}", 14.sp, FAINT)
+    if (ai.answer.isNotEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        Txt(DriveSummary.plain(ai.answer), 15.sp, NEON)
+    } else if (ai.busy) {
+        Txt(ai.status, 13.sp, WARN)
+    }
+    if (ai.stats.isNotEmpty()) Txt(ai.stats, 12.sp, FAINT)
+    if (!ai.busy && ai.sentPrompt.isNotEmpty()) {
+        Spacer(Modifier.height(6.dp))
+        Button(if (showPrompt) "Hide prompt" else "Show prompt", MUTED) { showPrompt = !showPrompt }
+        if (showPrompt) {
+            Spacer(Modifier.height(6.dp))
+            Txt("SYSTEM INSTRUCTION", 12.sp, MUTED, FontWeight.SemiBold)
+            Txt(ai.sentSystem, 12.sp, FAINT, mono = true)
+            Txt("MESSAGE", 12.sp, MUTED, FontWeight.SemiBold)
+            Txt(ai.sentPrompt, 12.sp, FAINT, mono = true)
         }
     }
 }

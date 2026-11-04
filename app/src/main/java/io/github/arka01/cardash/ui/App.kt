@@ -72,6 +72,7 @@ class Actions(
     val shareDrive: (java.io.File) -> Unit,   // a drive's CSV (+ profile, report, summary)
     val replayDrive: (java.io.File) -> Unit,
     val askDrive: (String) -> Unit,           // type a question about this drive (CSV file name)
+    val askDrives: (List<String>) -> Unit,    // type a question about several drives (CSV file names)
     val chooseCar: (String) -> Unit,          // switch to this car (folder name)
     val newCar: () -> Unit,
     val scanCar: () -> Unit,                  // read-only scan of the car's computers

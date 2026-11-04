@@ -56,7 +56,7 @@ class DriveReport(
 
     /** Plain text (for sharing, and later for the on-phone AI). */
     fun text(): String = buildString {
-        append(SimpleDateFormat("d MMM yyyy HH:mm", Locale.UK).format(start))
+        append(TimeFormat.dayShort(start))
         append(String.format(Locale.US, ", %.0f min, %.1f km\n", minutes, km))
         append("Kind of drive: ").append(driveType).append('\n')
         append("VERDICT\n")
@@ -69,8 +69,8 @@ class DriveReport(
 
     companion object {
         /** Raise when the calculation changes: older saved reports are then calculated again. */
-        const val VERSION = 5   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK; 4: drive type;
-                                // 5: "engine revs over …" (the AI read "rpm limit" as a speed limit)
+        const val VERSION = 6   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK; 4: drive type;
+                                // 5: "engine revs over …" (the AI read "rpm limit" as a speed limit); 6: 12-hour times
 
         fun fromJson(j: JSONObject): DriveReport? {
             if (j.optInt("version") != VERSION) return null
@@ -315,7 +315,7 @@ class DriveReport(
                     below < 300 -> Verdict.WATCH
                     else -> Verdict.CHECK
                 }
-                val at = if (longest > 0) " (longest at ${rows[longestStart].time?.substring(11, 16)})" else ""
+                val at = if (longest > 0) " (longest at ${rows[longestStart].time?.substring(11, 16)?.let(TimeFormat::from24)})" else ""
                 battery += ReportLine("below 12 V running", String.format(Locale.US, "%.0f s%s", below, at), v)
                 if (v != Verdict.OK) finding(ReportLine("below 12 V while driving", String.format(Locale.US, "%.0f s total%s", below, at), v))
                 // Overcharge: above 15.0 V for 5 s (brief spikes while braking are normal)
