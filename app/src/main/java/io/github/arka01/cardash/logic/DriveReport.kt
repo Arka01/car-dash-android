@@ -54,15 +54,27 @@ class DriveReport(
             JSONObject().put("title", s.title).put("lines", JSONArray(s.lines.map { it.toJson() }))
         }))
 
-    /** Plain text (for sharing, and later for the on-phone AI). */
-    fun text(): String = buildString {
-        append(TimeFormat.dayShort(start))
+    /**
+     * Plain text for the on-phone AI. With several drives, [tag] ("D5") goes on every heading and
+     * [mark] ("newest") after the first: 2026-11-05, asked "how was the last drive", the small model
+     * took D4's numbers for D5 (untagged headings, D5's empty VERDICT right below D4's findings).
+     * A VERDICT without WATCH / CHECK says so in words, so the model doesn't look elsewhere.
+     * [withData]: the DATA section (recording quality), left out for questions about several drives.
+     */
+    fun text(tag: String = "", mark: String = "", withData: Boolean = true): String = buildString {
+        val p = if (tag.isEmpty()) "" else "$tag "
+        append(p)
+        if (mark.isNotEmpty()) append('(').append(mark).append(") ")
+        append(TimeFormat.forAi(start))
         append(String.format(Locale.US, ", %.0f min, %.1f km\n", minutes, km))
-        append("Kind of drive: ").append(driveType).append('\n')
-        append("VERDICT\n")
+        append(p).append("kind of drive: ").append(driveType).append('\n')
+        append(p).append("VERDICT")
+        if (verdicts.none { it.verdict == Verdict.WATCH || it.verdict == Verdict.CHECK }) append(": all OK, nothing to watch")
+        append('\n')
         verdicts.forEach { append("  ${it.verdict} ${it.label}${if (it.value.isNotEmpty()) " ${it.value}" else ""}\n") }
         sections.forEach { s ->
-            append(s.title).append('\n')
+            if (!withData && s.title.startsWith("DATA")) return@forEach
+            append(p).append(s.title).append('\n')
             s.lines.forEach { append("  ${it.label}: ${it.value}${if (it.verdict != Verdict.INFO) " (${it.verdict})" else ""}\n") }
         }
     }

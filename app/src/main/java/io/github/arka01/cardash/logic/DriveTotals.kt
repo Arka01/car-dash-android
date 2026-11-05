@@ -20,7 +20,7 @@ object DriveTotals {
     fun totals(reports: List<DriveReport>): String = buildString {
         val rs = ordered(reports)
         if (rs.isEmpty()) return@buildString
-        append("${rs.size} drive${if (rs.size == 1) "" else "s"}, ${TimeFormat.day(rs.first().start)} to ${TimeFormat.day(rs.last().start)}\n")
+        append("${rs.size} drive${if (rs.size == 1) "" else "s"}, ${TimeFormat.forAi(rs.first().start)} to ${TimeFormat.forAi(rs.last().start)}\n")
 
         val withFuel = rs.filter { it.litres != null }
         val litres = withFuel.sumOf { it.litres!! }
@@ -97,15 +97,22 @@ object DriveTotals {
      * each instead, if the full reports would be too long for the model.
      */
     fun drives(reports: List<DriveReport>, compact: Boolean = false): String = buildString {
-        ordered(reports).forEachIndexed { i, r ->
+        val rs = ordered(reports)
+        rs.forEachIndexed { i, r ->
+            val mark = when {
+                rs.size < 2 -> ""
+                i == 0 -> "oldest"
+                i == rs.lastIndex -> "newest"
+                else -> ""
+            }
             if (compact) {
-                append(String.format(Locale.US, "%s %s | %.0f min, %.1f km, %s | %s | findings: %s\n",
-                    tag(i), TimeFormat.day(r.start), r.minutes, r.km, r.driveType,
+                append(String.format(Locale.US, "%s%s %s | %.0f min, %.1f km, %s | %s | findings: %s\n",
+                    tag(i), if (mark.isEmpty()) "" else " ($mark)", TimeFormat.forAi(r.start), r.minutes, r.km, r.driveType,
                     r.lPer100?.let { String.format(Locale.US, "%.1f L/100 km", it) } ?: "fuel --",
                     r.verdicts.filter { it.verdict == Verdict.WATCH || it.verdict == Verdict.CHECK }
                         .joinToString("; ") { "${it.verdict} ${it.label}" }.ifEmpty { "none" }))
             } else {
-                append(tag(i)).append(' ').append(r.text().substringBefore("\nDATA\n").trimEnd()).append("\n\n")
+                append(r.text(tag(i), mark, withData = false).trimEnd()).append("\n\n")
             }
         }
     }

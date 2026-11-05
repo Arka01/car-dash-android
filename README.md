@@ -280,7 +280,9 @@ work (it only knows what's in that report). **Several drives:** **Drives → Ask
 (**Last 5 / Clear / ✕**, back gesture leaves) → **Ask →** → **🎤 Ask a question** (spoken). The prompt (`DriveSummary.askSeveral`) has the
 car notes, FUEL NOW, **TOTALS AND TRENDS** calculated in code (`logic/DriveTotals`: totals, overall L/100 km = litres ÷ km,
 best/worst drive ≥ 2 km, trends earlier half vs later half: fuel ±10 %, resting battery ±0.15 V, start dip ±0.3 V; warm-up
-average; highest speed/rpm/coolant; each WATCH/CHECK with the drives it came up on), then each drive's report without DATA,
+average; highest speed/rpm/coolant; each WATCH/CHECK with the drives it came up on), then each drive's report without DATA (every heading tagged `D5 DRIVE`, `D5 BATTERY` …, `(oldest)` / `(newest)` on the
+first line, an empty VERDICT written as "all OK, nothing to watch", dates without the year: 2026-11-05 the model gave D5 D4's
+numbers and wrote "202064"),
 tagged D1 (oldest) … D5; one line per drive instead if the message would pass 8,500 characters. Answer up to 700 tokens.
 **Share** there = one ZIP `CarDash_<n>_drives_from_<date>_<time>.zip`: each chosen drive's CSV, profile, report, summary, the
 car's `fuel_state.json` and, after a question, `ai_answer.txt` (D tags → drives, question, answer, time taken, system instruction, message).

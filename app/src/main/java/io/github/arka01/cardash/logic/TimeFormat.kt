@@ -15,8 +15,11 @@ object TimeFormat {
     /** "Wed 4 Nov 2026 · 9:10 AM" */
     fun day(ms: Long): String = SimpleDateFormat("EEE d MMM yyyy · h:mm a", Locale.US).format(Date(ms))
 
-    /** "4 Nov 2026 9:10 AM" (drive reports for the AI) */
-    fun dayShort(ms: Long): String = SimpleDateFormat("d MMM yyyy h:mm a", Locale.US).format(Date(ms))
+    /**
+     * "Wed 4 Nov, 9:10 AM": dates for the AI. No year (2026-11-05: the small model wrote "5 Nov 202064";
+     * fewer digits, less to garble, and the year adds nothing).
+     */
+    fun forAi(ms: Long): String = SimpleDateFormat("EEE d MMM, h:mm a", Locale.US).format(Date(ms))
 
     /** "09:36" or "21:16" (from a recording) -> "9:36 AM" / "9:16 PM"; unchanged if it isn't a time. */
     fun from24(hhmm: String): String {
