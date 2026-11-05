@@ -273,10 +273,11 @@ AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet a
 2. **☰ → Settings → AI → Import model** → pick the file in Downloads. Car Dash copies it into its own storage
    (about a minute); afterwards the copy in Downloads can be deleted. **[REMOVE]** deletes it again.
 
-**Use:** in **Drives → a drive → Ask about this drive**, type a question. That drive's report, the
+**Use:** in **Drives → a drive → Ask about this drive → 🎤 Ask a question**, speak the question (Android's own "Speak now" window,
+`RecognizerIntent`, en-IN; since 2026-11-05 instead of typing). That drive's report, the
 car notes, earlier drives and the fuel left right now ("FUEL NOW") go with it, so "How was my drive?" or "Why is the battery a WATCH?"
 work (it only knows what's in that report). **Several drives:** **Drives → Ask AI** (or long-press a card) → tick up to 5
-(**Last 5 / Clear / ✕**, back gesture leaves) → **Ask →** → **Ask a question**. The prompt (`DriveSummary.askSeveral`) has the
+(**Last 5 / Clear / ✕**, back gesture leaves) → **Ask →** → **🎤 Ask a question** (spoken). The prompt (`DriveSummary.askSeveral`) has the
 car notes, FUEL NOW, **TOTALS AND TRENDS** calculated in code (`logic/DriveTotals`: totals, overall L/100 km = litres ÷ km,
 best/worst drive ≥ 2 km, trends earlier half vs later half: fuel ±10 %, resting battery ±0.15 V, start dip ±0.3 V; warm-up
 average; highest speed/rpm/coolant; each WATCH/CHECK with the drives it came up on), then each drive's report without DATA,

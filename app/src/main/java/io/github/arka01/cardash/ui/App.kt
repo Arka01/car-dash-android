@@ -71,8 +71,8 @@ class Actions(
     val shareLog: () -> Unit,
     val shareDrive: (java.io.File) -> Unit,   // a drive's CSV (+ profile, report, summary)
     val replayDrive: (java.io.File) -> Unit,
-    val askDrive: (String) -> Unit,           // type a question about this drive (CSV file name)
-    val askDrives: (List<String>) -> Unit,    // type a question about several drives (CSV file names)
+    val askDrive: (String) -> Unit,           // ask about this drive by voice (CSV file name)
+    val askDrives: (List<String>) -> Unit,    // ask about several drives by voice (CSV file names)
     val shareDrives: (List<String>) -> Unit,  // ZIP of several drives + the last AI answer about them
     val talk: () -> Unit,                     // Talk with the phone's microphone (ai/Talk)
     val chooseCar: (String) -> Unit,          // switch to this car (folder name)

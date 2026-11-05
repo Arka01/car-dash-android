@@ -599,7 +599,7 @@ private fun SeveralDrivesScreen(items: List<DriveItem>, actions: Actions, back: 
                 if (mine && ai.busy) {
                     Button("Stop", WARN, onClick = actions.aiStop)
                 } else {
-                    Button("Ask a question", NEON) { actions.askDrives(items.map { it.csv.name }) }
+                    Button("🎤 Ask a question", NEON) { actions.askDrives(items.map { it.csv.name }) }
                 }
                 if (mine) AnswerBlock(ai)
             }
@@ -731,7 +731,7 @@ private fun AskCard(item: DriveItem, actions: Actions) {
         if (mine && ai.busy) {
             Button("Stop", WARN, onClick = actions.aiStop)
         } else {
-            Button("Ask a question", NEON) { actions.askDrive(item.csv.name) }
+            Button("🎤 Ask a question", NEON) { actions.askDrive(item.csv.name) }
         }
         if (mine) AnswerBlock(ai)
     }

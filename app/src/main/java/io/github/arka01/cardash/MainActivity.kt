@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.speech.RecognizerIntent
 import android.text.InputType
 import android.widget.CheckBox
 import android.widget.EditText
@@ -45,6 +46,32 @@ class MainActivity : ComponentActivity() {
 
     /** IMPORT MODEL: Android's file picker; the chosen .litertlm file is copied into the app. */
     /** Talk (phone): asks for the microphone the first time, then starts. */
+    /**
+     * Drives → Ask a question by voice (2026-11-05, owner: speak instead of typing): Android's own
+     * "Speak now" window (Google's speech recognition, its own microphone access). The words it heard
+     * go to [voiceAsk]; cancelled or nothing heard: nothing happens.
+     */
+    private var voiceAsk: ((String) -> Unit)? = null
+    private val voice = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val then = voiceAsk
+        voiceAsk = null
+        val q = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
+        if (r.resultCode == RESULT_OK && !q.isNullOrEmpty()) then?.invoke(q)
+    }
+
+    private fun askByVoice(prompt: String, then: (String) -> Unit) {
+        voiceAsk = then
+        LocalLlm.preload(this)   // loads the model while the owner speaks
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
+        runCatching { voice.launch(intent) }.onFailure {
+            voiceAsk = null
+            toast("This phone has no voice input")
+        }
+    }
+
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) talk() else toast("Talk needs the microphone")
     }
@@ -339,47 +366,20 @@ class MainActivity : ComponentActivity() {
 
 
 
-    /** Ask about this drive (Drives): the question goes to the on-phone AI with this drive's report. */
-    private fun askAboutDrive(csvName: String) {
-        val input = EditText(this).apply {
-            hint = "e.g. How was my drive?"
-            minLines = 3
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Ask about this drive")
-            .setView(input)
-            .setPositiveButton("Ask") { _, _ ->
-                val q = input.text.toString().trim()
-                if (q.isEmpty()) return@setPositiveButton
-                val ctx = DriveReports.forQuestion(this, csvName)
-                val why = if (ctx == null) "This drive has no report yet" else DriveSummary.ask(this, q, ctx.first, ctx.second, ctx.third, csvName, DriveReports.fuelNow(ctx.first))
-                why?.let { toast(it) }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+    /** Ask about this drive (Drives): spoken question → the on-phone AI with this drive's report. */
+    private fun askAboutDrive(csvName: String) = askByVoice("Ask about this drive") { q ->
+        val ctx = DriveReports.forQuestion(this, csvName)
+        val why = if (ctx == null) "This drive has no report yet" else DriveSummary.ask(this, q, ctx.first, ctx.second, ctx.third, csvName, DriveReports.fuelNow(ctx.first))
+        why?.let { toast(it) }
     }
 
-    /** Ask about several drives (Drives → Ask AI): their reports plus totals and trends worked out by the app. */
-    private fun askAboutDrives(csvNames: List<String>) {
-        val input = EditText(this).apply {
-            hint = "e.g. Is my fuel use getting better?"
-            minLines = 3
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+    /** Ask about several drives (Drives → Ask AI): spoken question → their reports plus totals and trends worked out by the app. */
+    private fun askAboutDrives(csvNames: List<String>) =
+        askByVoice("Ask about ${csvNames.size} drive${if (csvNames.size == 1) "" else "s"}") { q ->
+            val ctx = DriveReports.forSeveral(this, csvNames)
+            val why = if (ctx == null) "These drives have no reports yet" else DriveSummary.askSeveral(this, q, ctx.first, ctx.second, DriveReports.fuelNow(ctx.first))
+            why?.let { toast(it) }
         }
-        AlertDialog.Builder(this)
-            .setTitle("Ask about ${csvNames.size} drive${if (csvNames.size == 1) "" else "s"}")
-            .setView(input)
-            .setPositiveButton("Ask") { _, _ ->
-                val q = input.text.toString().trim()
-                if (q.isEmpty()) return@setPositiveButton
-                val ctx = DriveReports.forSeveral(this, csvNames)
-                val why = if (ctx == null) "These drives have no reports yet" else DriveSummary.askSeveral(this, q, ctx.first, ctx.second, DriveReports.fuelNow(ctx.first))
-                why?.let { toast(it) }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
 
     /** Car screen: change tank size, engine size, shift light or red line. */
     private fun editCar(key: String) {

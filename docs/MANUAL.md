@@ -220,12 +220,12 @@ The AI is told to trust the verdicts, to report only this drive's findings, and 
 
 ### Using it
 - **Drive summary:** written automatically after each drive, and read aloud.
-- **Ask about this drive:** in **Drives**, open a drive → **Ask a question**. For example:
+- **Ask about this drive:** in **Drives**, open a drive → **🎤 Ask a question**, and say your question when the phone shows **Speak now** (the question you spoke appears above the answer). For example:
   - "How was my drive?"
   - "Why is the battery a watch?"
   - "Was my fuel use OK?"
   - "Do I need to fuel up?" (the AI also gets the fuel left in the tank right now)
-- **Ask about several drives (up to 5):** in **Drives**, tap **Ask AI** (or press and hold a drive) and tap the drives you want: each gets a tick. **Last 5** picks the newest five, **Clear** unticks all, **✕** leaves. Then tap **Ask →** and **Ask a question**. For example:
+- **Ask about several drives (up to 5):** in **Drives**, tap **Ask AI** (or press and hold a drive) and tap the drives you want: each gets a tick. **Last 5** picks the newest five, **Clear** unticks all, **✕** leaves. Then tap **Ask →** and **🎤 Ask a question**, and say your question. For example:
   - "Is my fuel use getting better?"
   - "Is my battery getting weaker?"
   - "Which was my worst drive, and why?"
