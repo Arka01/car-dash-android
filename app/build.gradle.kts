@@ -64,6 +64,9 @@ kotlin {
 
 dependencies {
     implementation("androidx.car.app:app:1.7.0")
+    // The car microphone (Talk on the car screen): CarAudioRecord loads its phone-projection half from
+    // here; without it, it throws IllegalStateException "CarAudioRecord not configured" (2026-11-05).
+    implementation("androidx.car.app:app-projected:1.7.0")
     // LiveData for the car connection state (stop reading only when Android Auto really disconnects).
     implementation("androidx.lifecycle:lifecycle-livedata-core:2.9.4")
     implementation("androidx.core:core:1.17.0")   // 1.19+ needs Android SDK 37
