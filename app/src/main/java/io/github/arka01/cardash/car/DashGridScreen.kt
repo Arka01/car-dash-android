@@ -10,7 +10,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.car.app.CarToast
 import androidx.car.app.model.Action
-import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.CarColor
 import androidx.car.app.model.CarIcon
 import androidx.car.app.model.ForegroundCarColorSpan
@@ -50,8 +49,9 @@ import java.util.Locale
  * terminal green) and icons all work. Display only: no buttons and nothing tappable, because the
  * Tiago's touch screen makes random ghost taps. Reading starts by itself (CarControls).
  *
- * Talk (2026-11-04, owner's choice): the one exception, a Talk button in the corner. A ghost tap only
- * starts listening, which stops quietly when nobody speaks.
+ * Talk (2026-11-04, owner's choice): the one exception, the first tile (top left: the right side of
+ * the Tiago's screen is the least reliable to tap; corner buttons can only go top right). A ghost tap
+ * only starts listening, which stops quietly when nobody speaks. Every tap is logged (talk_log.txt).
  *
  * Android Auto allows only a few "new" screens per task, but an update counts as a free refresh
  * if the number of tiles and every title stay the same. So the tiles are fixed; only values change.
@@ -60,6 +60,7 @@ import java.util.Locale
 private val TERMINAL_GREEN: CarColor = CarColor.createCustom(0xFF33FF66.toInt(), 0xFF33FF66.toInt())
 private const val REFRESH_MS = 250L   // asked for 4 times a second; Android Auto may deliver fewer
 private const val OLD_MS = 10_000     // a reading older than this shows as "--"
+private const val PAUSE_AFTER_TAP_MS = 2_000L
 
 /** One tile: what it shows now ([value] null = "--") and its warning level. */
 private class TileValue(val value: String?, val level: Level = Level.OK)
@@ -155,10 +156,11 @@ private fun Level.carColor(): CarColor = when (this) {
     Level.ALARM -> CarColor.RED
 }
 
-/** The car screen: a scrolling grid of tiles; the only thing to tap is Talk. */
+/** The car screen: a scrolling grid of tiles; the only thing to tap is the Talk tile (top left). */
 class DashGridScreen(carContext: CarContext) : Screen(carContext) {
     private var setupNeeded: String? = null
     private val icons = HashMap<Int, CarIcon>()
+    @Volatile private var pausedUntil = 0L   // no redraws for a moment after Talk is tapped
 
     init {
         val ui = MainScope()
@@ -168,7 +170,9 @@ class DashGridScreen(carContext: CarContext) : Screen(carContext) {
                 refresh = ui.launch {
                     while (isActive) {
                         delay(REFRESH_MS)
-                        invalidate()
+                        // A tap can get lost while the car redraws the screen (suspected 2026-10-29 and
+                        // 2026-11-05): after a Talk tap, pause so a second tap or the toast isn't disturbed.
+                        if (System.currentTimeMillis() >= pausedUntil) invalidate()
                     }
                 }
             }
@@ -188,7 +192,15 @@ class DashGridScreen(carContext: CarContext) : Screen(carContext) {
         if (setupNeeded != null) setupNeeded = CarControls.autoStart(carContext)   // done on the phone meanwhile?
         val s = Dash.state.value
         val items = ItemList.Builder()
-        for (tile in TILES.take(tileLimit())) {
+        items.addItem(
+            GridItem.Builder()
+                .setTitle("Talk")
+                .setText(colored(Talk.state.value.ifEmpty { "Tap to ask" }, TERMINAL_GREEN))
+                .setImage(icon(R.drawable.ic_mic), GridItem.IMAGE_TYPE_ICON)
+                .setOnClickListener { talk() }
+                .build(),
+        )
+        for (tile in TILES.take(tileLimit() - 1)) {
             // The one-time phone setup, if missing, goes in the Status tile (there are no buttons).
             val v = if (tile.title == "Status" && setupNeeded != null) TileValue("Set up on phone", Level.WARN) else tile.read(s)
             items.addItem(
@@ -202,34 +214,47 @@ class DashGridScreen(carContext: CarContext) : Screen(carContext) {
         return GridTemplate.Builder()
             .setTitle("Car Dash")
             .setHeaderAction(Action.APP_ICON)
-            .setActionStrip(ActionStrip.Builder().addAction(talkAction).build())
             .setSingleList(items.build())
             .build()
     }
 
-    private val talkAction: Action by lazy {
-        Action.Builder()
-            .setTitle("Talk")
-            .setIcon(icon(R.drawable.ic_mic))
-            .setOnClickListener { talk() }
-            .build()
-    }
-
-    /** Talk with the car's microphone: needs Android Auto's car app level 5 and the microphone permission. */
+    /**
+     * Talk with the car's microphone: needs Android Auto's car app level 5 and the microphone
+     * permission. Every step and failure goes into talk_log.txt and, briefly, onto the car screen.
+     */
     private fun talk() {
-        if (carContext.carAppApiLevel < CarAppApiLevels.LEVEL_5) {
-            CarToast.makeText(carContext, "Talk needs a newer Android Auto", CarToast.LENGTH_LONG).show()
+        pausedUntil = System.currentTimeMillis() + PAUSE_AFTER_TAP_MS
+        val level = carContext.carAppApiLevel
+        val allowed = carContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        Talk.note(carContext, "car tap: Android Auto level $level, microphone ${if (allowed) "allowed" else "not allowed"}")
+        fun tell(text: String) = CarToast.makeText(carContext, text, CarToast.LENGTH_LONG).show()
+        if (level < CarAppApiLevels.LEVEL_5) {
+            Talk.note(carContext, "car: Android Auto too old for the car microphone (needs level 5)")
+            tell("Talk needs a newer Android Auto")
             return
         }
-        if (carContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            carContext.requestPermissions(listOf(Manifest.permission.RECORD_AUDIO)) { granted, _ ->
-                if (Manifest.permission.RECORD_AUDIO in granted) talk()
+        if (!allowed) {
+            val asked = runCatching {
+                carContext.requestPermissions(listOf(Manifest.permission.RECORD_AUDIO)) { granted, rejected ->
+                    Talk.note(carContext, "car: microphone permission: granted $granted, rejected $rejected")
+                    if (Manifest.permission.RECORD_AUDIO in granted) talk()
+                }
+            }
+            asked.exceptionOrNull()?.let {
+                Talk.note(carContext, "car: couldn't ask for the microphone: ${it.javaClass.simpleName}: ${it.message}")
+                tell("Allow the microphone for Car Dash on the phone (when parked)")
             }
             return
         }
         val why = runCatching { Talk.start(carContext, CarMic(carContext)) { CarToast.makeText(carContext, it, CarToast.LENGTH_SHORT).show() } }
-            .getOrElse { "Talk failed: ${it.message}" }
-        why?.let { CarToast.makeText(carContext, it, CarToast.LENGTH_LONG).show() }
+            .getOrElse {
+                Talk.note(carContext, "car: Talk failed: ${it.javaClass.simpleName}: ${it.message}")
+                "Talk failed: ${it.javaClass.simpleName}"
+            }
+        why?.let {
+            Talk.note(carContext, "car: not started: $it")
+            tell(it)
+        }
     }
 
     private fun icon(@DrawableRes id: Int): CarIcon =

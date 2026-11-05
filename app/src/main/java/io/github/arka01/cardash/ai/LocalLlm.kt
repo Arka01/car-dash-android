@@ -233,6 +233,7 @@ object LocalLlm {
         maxTokens: Int? = null,
         allowLive: Boolean = false,
         shown: String? = null,   // what the AI screen shows as the question (default: [question])
+        greedy: Boolean = false, // facts (questions, Talk): always the likeliest word, so numbers are copied exactly
         onDone: ((String?) -> Unit)? = null,
     ): String? {
         val app = context.applicationContext
@@ -241,7 +242,10 @@ object LocalLlm {
         // The drive recording comes first: the model uses a lot of memory and processor.
         if (!allowLive && Dash.state.value.mode == Mode.LIVE) return "Not while LIVE: stop reading first"
         val saved = settings(app)
-        val s = saved.copy(systemPrompt = system ?: saved.systemPrompt, maxTokens = maxTokens ?: saved.maxTokens)
+        val s = saved.copy(systemPrompt = system ?: saved.systemPrompt, maxTokens = maxTokens ?: saved.maxTokens).let {
+            // 2026-11-05: with some randomness the small model once wrote "546 km/h" for 54.
+            if (greedy) it.copy(temperature = 0.1, topK = 1) else it
+        }
         store.update {
             it.copy(busy = true, question = shown ?: question, answer = "", stats = "", sentSystem = s.systemPrompt, sentPrompt = question)
         }

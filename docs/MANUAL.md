@@ -232,15 +232,18 @@ The AI is told to trust the verdicts, to report only this drive's findings, and 
 
   The drives are numbered **D1** (oldest) to **D5**, and the AI uses the same numbers. Car Dash works out the totals and trends itself (total km and fuel, best and worst fuel use, battery voltages over the drives, how often each warning came up) and the AI explains them. An answer takes a little longer than for one drive. **Share** (below the answer) sends one ZIP with these drives and, once you've asked, the question, the answer and exactly what the AI received.
 - **Show prompt** (under an answer) shows exactly what the AI received, for the curious.
+- **Number check:** after every answer, Car Dash checks the AI's numbers against the data it gave it. A number that isn't in the data is marked **⚠** under the answer; in a spoken Talk answer, a sentence with such a number is left out.
 
 ### Talk: ask out loud, even while driving
-Tap **Talk** (the microphone button on the car screen, or **🎤 Talk** on the Dash) and ask, for example:
+Tap **Talk** (the first tile, top left, on the car screen, or **🎤 Talk** on the Dash) and ask, for example:
 - "How far can I go?"
 - "Is the engine warm yet?"
 - "Is anything wrong?"
 - "How's the battery?"
 
-Car Dash listens until you stop speaking, then answers out loud in a sentence or two, through the car's speakers. On the car screen it uses **the car's microphone**; on the phone, the phone's. The first time, Android asks to allow the microphone.
+Car Dash listens until you stop speaking, then answers out loud in a sentence or two, through the car's speakers. On the car screen it uses **the car's microphone**; on the phone, the phone's.
+
+**Allow the microphone once, before driving:** tap **🎤 Talk** on the phone and allow it, or go to the phone's **Settings → Apps → Car Dash → Permissions → Microphone → Allow only while using the app**. Android Auto has no separate microphone setting; it uses this one.
 
 The answer comes from the AI, which gets the car's **readings right now** with Car Dash's own verdicts (normal, watch, check), the fuel and range, this trip and any warnings. The first question of a drive takes longer (the AI loads, about 10 seconds); after that, a few seconds. If you tap Talk and say nothing, it stops by itself after a few seconds. Talk needs Android 13 or newer and the AI model.
 

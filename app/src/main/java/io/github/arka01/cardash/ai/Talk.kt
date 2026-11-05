@@ -17,6 +17,7 @@ import android.speech.SpeechRecognizer
 import androidx.annotation.RequiresApi
 import io.github.arka01.cardash.CarState
 import io.github.arka01.cardash.Dash
+import io.github.arka01.cardash.DriveService
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
 import io.github.arka01.cardash.Speech
@@ -51,7 +52,8 @@ object Talk {
         "the LIVE NOW data. Its levels (normal, watch, check) were decided by the app with this car's own rules: trust " +
         "them and never judge a number yourself. Answer in one or two short spoken sentences: plain words, no lists, " +
         "no symbols, rounded numbers. If the data doesn't answer the question, say so briefly. RPM is how fast the " +
-        "engine turns, not the car's speed. Never ask the driver to look at the phone."
+        "engine turns, not the car's speed. Never ask the driver to look at the phone. Copy every number exactly as " +
+        "written in the data, with its unit; never change, join or invent digits; if unsure of a number, leave it out."
 
     private val status = MutableStateFlow("")
     /** What Talk is doing, for the Dash: "Listening…", "Thinking…", or "" when idle. */
@@ -83,17 +85,21 @@ object Talk {
         LocalLlm.preload(app)   // loads the model while the driver speaks (~10 s the first time)
         Thread {
             val pressed = System.currentTimeMillis()
+            // While LIVE, the drive service also declares the microphone, so Android lets Car Dash hear
+            // with the phone locked (Android 14 "while in use" rule). Its result goes into the log.
+            if (DriveService.micOn(app)) Thread.sleep(300)
             val focus = holdFocus(app)
             val sound = try {
                 listen(mic)
             } catch (e: Throwable) {
-                log(app, "mic failed (${mic.name}): ${e.javaClass.simpleName}: ${e.message}")
+                note(app, "mic failed (${mic.name}): ${e.javaClass.simpleName}: ${e.message}")
                 null
             } finally {
                 focus?.let { (am, request) -> am.abandonAudioFocusRequest(request) }
+                DriveService.micOff(app)
             }
             if (sound == null) {
-                log(app, "nothing heard (${mic.name})")
+                note(app, "nothing heard (${mic.name})")
                 finish("")
                 main.post { show("Didn't hear anything") }
                 return@Thread
@@ -103,12 +109,12 @@ object Talk {
             recognize(app, sound) { text, how ->
                 val heard = (System.currentTimeMillis() - pressed) / 1000.0
                 if (text.isNullOrBlank()) {
-                    log(app, String.format(Locale.US, "not understood after %.1f s (%s; %s)", heard, mic.name, how))
+                    note(app, String.format(Locale.US, "not understood after %.1f s (%s; %s)", heard, mic.name, how))
                     Speech.reply(app, "Sorry, I didn't catch that.")
                     finish("")
                     return@recognize
                 }
-                log(app, String.format(Locale.US, "asked after %.1f s (%s; %s; reading %.1f/s): %s",
+                note(app, String.format(Locale.US, "asked after %.1f s (%s; %s; reading %.1f/s): %s",
                     heard, mic.name, how, Dash.state.value.roundsPerSec, text))
                 say("Thinking…")
                 ask(app, text, show)
@@ -117,21 +123,95 @@ object Talk {
         return null
     }
 
+    /**
+     * Talk on the phone (2026-11-05): Android's normal speech recognition straight from the phone's
+     * microphone (the well-tested way; recognizing recorded sound failed on the owner's phone).
+     * Returns why not, or null when started.
+     */
+    fun startPhone(context: Context): String? {
+        val app = context.applicationContext
+        if (!LocalLlm.hasModel(app)) return "Talk needs the AI: import a model in Settings → AI"
+        if (active || LocalLlm.state.value.busy) return "Busy: wait for the last answer"
+        val standard = SpeechRecognizer.isRecognitionAvailable(app)
+        val recognizer = when {
+            standard -> SpeechRecognizer.createSpeechRecognizer(app)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(app) ->
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(app)
+            else -> {
+                note(app, "phone: no speech recognition on this phone")
+                return "This phone has no speech recognition"
+            }
+        }
+        val how = if (standard) "standard en-IN, phone microphone" else "on-device en-IN, phone microphone"
+        active = true
+        status.value = "Listening…"
+        LocalLlm.preload(app)
+        val pressed = System.currentTimeMillis()
+        var finished = false
+        fun end(text: String?, error: Int?) {
+            if (finished) return
+            finished = true
+            runCatching { recognizer.destroy() }
+            val heard = (System.currentTimeMillis() - pressed) / 1000.0
+            if (text.isNullOrBlank()) {
+                note(app, String.format(Locale.US, "not understood after %.1f s (%s; error %s)", heard, how, error?.toString() ?: "-"))
+                Speech.reply(app, "Sorry, I didn't catch that.")
+                finish("")
+                return
+            }
+            note(app, String.format(Locale.US, "asked after %.1f s (%s; reading %.1f/s): %s", heard, how, Dash.state.value.roundsPerSec, text))
+            status.value = "Thinking…"
+            ask(app, text) {}
+        }
+        recognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onResults(results: Bundle?) =
+                end(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull(), null)
+            override fun onError(error: Int) = end(null, error)
+            override fun onEndOfSpeech() {
+                status.value = "Understanding…"
+            }
+            override fun onReadyForSpeech(params: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, app.packageName)
+        }
+        return runCatching { recognizer.startListening(intent) }.fold({ null }, {
+            end(null, -1)
+            "Talk failed: ${it.message}"
+        })
+    }
+
     /** The question to the AI with LIVE NOW; the answer is spoken and logged. */
     private fun ask(app: Context, question: String, show: (String) -> Unit) {
         val asked = System.currentTimeMillis()
-        val why = LocalLlm.ask(app, live(Dash.state.value) + "\nQUESTION: " + question, system = SYSTEM, maxTokens = TOKENS,
-            allowLive = true, shown = question) { answer ->
+        val prompt = live(Dash.state.value) + "\nQUESTION: " + question
+        val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = TOKENS, allowLive = true, shown = question,
+            greedy = true) { answer ->
             val text = answer?.let { DriveSummary.plain(it).replace(Regex("\\s+"), " ").trim() }.orEmpty()
-            log(app, String.format(Locale.US, "answered in %.1f s (%s; reading %.1f/s): %s",
+            // Numbers not in LIVE NOW: those sentences aren't spoken (no time for a second try while driving).
+            val bad = NumberCheck.bad(text, SYSTEM + "\n" + prompt)
+            val spoken = if (bad.isEmpty()) text else NumberCheck.withoutBad(text, bad)
+            note(app, String.format(Locale.US, "answered in %.1f s (%s; reading %.1f/s): %s%s",
                 (System.currentTimeMillis() - asked) / 1000.0, LocalLlm.state.value.stats, Dash.state.value.roundsPerSec,
-                text.ifEmpty { "(no answer)" }))
-            Speech.reply(app, text.ifEmpty { "Sorry, I couldn't answer that." })
-            lastTalk.value = "You: $question\nCar Dash: ${text.ifEmpty { "(no answer)" }}"
+                text.ifEmpty { "(no answer)" }, if (bad.isEmpty()) "" else " | not in the data, not spoken: ${bad.joinToString(", ")}"))
+            val say = when {
+                text.isEmpty() -> "Sorry, I couldn't answer that."
+                spoken.isEmpty() -> "I'm not sure about that one. Ask me again when you're parked."
+                else -> spoken
+            }
+            Speech.reply(app, say)
+            lastTalk.value = "You: $question\nCar Dash: $say"
             finish("")
         }
         if (why != null) {
-            log(app, "not asked: $why")
+            note(app, "not asked: $why")
             Speech.reply(app, "Sorry, the AI isn't ready.")
             finish("")
             main.post { show(why) }
@@ -210,20 +290,22 @@ object Talk {
     // ------------------------------------------------------------ speech to text
 
     /**
-     * The recorded sound to text, trying in turn: the phone's own on-device recognizer in Indian
-     * English, then in its default English, then Android's standard speech service (which may use the
-     * internet if no offline language is installed). [done] gets the text (null if nothing) and which one worked.
+     * The recorded sound (car microphone) to text, trying in turn: Android's standard speech service
+     * in Indian English (may use the internet if no offline language is installed), then the phone's
+     * own on-device recognizer in Indian English, then in its default English. 2026-11-05: the
+     * on-device one heard "no words" every time on the owner's phone, so it comes last, and "no
+     * words" goes on to the next one. [done] gets the text (null if nothing) and what each one did.
      */
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun recognize(context: Context, sound: ByteArray, done: (String?, String) -> Unit) {
         val onDevice: () -> SpeechRecognizer = { SpeechRecognizer.createOnDeviceSpeechRecognizer(context) }
         val standard: () -> SpeechRecognizer = { SpeechRecognizer.createSpeechRecognizer(context) }
         val tries = buildList<Triple<String, () -> SpeechRecognizer, String?>> {
+            if (SpeechRecognizer.isRecognitionAvailable(context)) add(Triple("standard en-IN", standard, "en-IN"))
             if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
                 add(Triple("on-device en-IN", onDevice, "en-IN"))
                 add(Triple("on-device", onDevice, null))
             }
-            if (SpeechRecognizer.isRecognitionAvailable(context)) add(Triple("standard en-IN", standard, "en-IN"))
         }
         val failures = mutableListOf<String>()
         fun attempt(i: Int) {
@@ -246,14 +328,12 @@ object Talk {
                     finished = true
                     runCatching { recognizer.destroy() }
                     runCatching { read.close() }
-                    when {
-                        text != null -> done(text, name)
-                        // No speech in the sound: another recognizer won't hear more.
-                        error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> done(null, "$name: no words")
-                        else -> {
-                            failures += "$name: error $error"
-                            attempt(i + 1)
-                        }
+                    if (text != null) {
+                        done(text, (failures + name).joinToString("; "))
+                    } else {
+                        failures += "$name: " + if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                            "no words (error $error)" else "error $error"
+                        attempt(i + 1)
                     }
                 }
                 recognizer.setRecognitionListener(object : RecognitionListener {
@@ -363,7 +443,7 @@ object Talk {
     // ------------------------------------------------------------ log
 
     /** One line per step in the car's talk_log.txt (24-hour times, to match the drive recordings). */
-    private fun log(context: Context, line: String) {
+    fun note(context: Context, line: String) {
         val file: File = Dash.state.value.car?.file("talk_log.txt") ?: File(context.filesDir, "talk_log.txt")
         runCatching {
             if (file.length() > 200_000) file.writeText(file.readLines().takeLast(500).joinToString("\n", postfix = "\n"))

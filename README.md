@@ -247,15 +247,19 @@ temperatures, unreliable outside-air reading, the owner's limits) and one line p
 
 ## On-phone AI
 
-**Talk** (`ai/Talk.kt`, `ai/Mic.kt`): **Talk** on the car screen (action strip; car mic via `CarAudioRecord`, car app
-API level 5) or **🎤 Talk** on the Dash (phone mic). Needs Android 13+ (speech recognition from recorded sound),
+**Talk** (`ai/Talk.kt`, `ai/Mic.kt`): **Talk** = first tile on the car screen (top left; car mic via `CarAudioRecord`, car app
+API level 5; redraws paused 2 s after a tap; every tap, permission result and error in `talk_log.txt`) or **🎤 Talk** on the Dash
+(phone: `Talk.startPhone`, the standard `SpeechRecognizer` straight from the phone mic, en-IN; build 37's recorded-sound
+way gave "no words" every time on the owner's phone). Needs Android 13+ (speech recognition from recorded sound),
 `RECORD_AUDIO` (asked on first use) and the model. Steps: listen (16 kHz PCM; background noise from the first 200 ms,
 speech = 2.5× that and > 300 for 100 ms; stops after 1.2 s quiet or 12 s; nothing in 5 s = quiet stop, e.g. a ghost tap;
-music paused with audio focus) → speech to text (`SpeechRecognizer` with `EXTRA_AUDIO_SOURCE`: on-device en-IN, then
-on-device default, then the standard service en-IN, which may go online) → the model (preloaded while listening) gets
+music paused with audio focus) → speech to text for the car mic (`SpeechRecognizer` with `EXTRA_AUDIO_SOURCE`: the standard service en-IN (may go
+online), then on-device en-IN, then on-device default; "no words" moves on to the next) → while LIVE, `DriveService` adds the
+`microphone` foreground-service type while listening (Android 14 "while in use"; result logged) → the model (preloaded while listening) gets
 **LIVE NOW** (`Talk.live`: speed/rpm/gear, temperatures with `Rules` levels, engine state, battery, fuel/range,
-consumption, trip, alerts, trouble codes) + the question, answers in ≤ 120 tokens → spoken with `Speech.reply` (even
-with the voice off). **Talk runs while LIVE reads the car** (the only AI use that does). Each step goes to the car's
+consumption, trip, alerts, trouble codes) + the question, answers in ≤ 120 tokens, greedy (topK 1) → `ai/NumberCheck`: numbers not in the prompt (rounding, D tags, clock
+times and small counts allowed) → those sentences aren't spoken → `Speech.reply` (even with the voice off). Ask and
+several-drives answers are greedy too and show ⚠ for such numbers (no retry: no extra delay). **Talk runs while LIVE reads the car** (the only AI use that does). Each step goes to the car's
 `talk_log.txt` (24-hour times, which recognizer, timings, reading rate before/after), included in drive ZIPs, so its
 effect on the reading rate can be checked against the drive CSV.
 

@@ -58,6 +58,7 @@ import io.github.arka01.cardash.Snapshot
 import io.github.arka01.cardash.ai.AiState
 import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.ai.LocalLlm
+import io.github.arka01.cardash.ai.NumberCheck
 import io.github.arka01.cardash.ai.Talk
 import io.github.arka01.cardash.driveLabel
 import io.github.arka01.cardash.logic.Calculations
@@ -745,6 +746,13 @@ private fun AnswerBlock(ai: AiState) {
     if (ai.answer.isNotEmpty()) {
         Spacer(Modifier.height(4.dp))
         Txt(DriveSummary.plain(ai.answer), 15.sp, NEON)
+        // Numbers the AI wrote that aren't in what it was given (ai/NumberCheck).
+        val bad = remember(ai.answer, ai.busy) {
+            if (ai.busy) emptyList() else NumberCheck.bad(ai.answer, ai.sentSystem + "\n" + ai.sentPrompt)
+        }
+        if (bad.isNotEmpty()) {
+            Txt("⚠ ${bad.joinToString(", ")} ${if (bad.size == 1) "isn't" else "aren't"} in the data: check the report.", 13.sp, WARN)
+        }
     } else if (ai.busy) {
         Txt(ai.status, 13.sp, WARN)
     }

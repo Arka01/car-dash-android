@@ -25,12 +25,26 @@ class DriveService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = notification(this)
+        when (intent?.action) {
+            MIC_ON, MIC_OFF -> {   // Talk listening (or done): add or drop the microphone type
+                val mic = intent.action == MIC_ON
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                        (if (mic) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0)
+                    runCatching { startForeground(ID, notification, types) }
+                        .onSuccess { if (mic) io.github.arka01.cardash.ai.Talk.note(this, "drive service: microphone on") }
+                        .onFailure { io.github.arka01.cardash.ai.Talk.note(this, "drive service: microphone refused: ${it.javaClass.simpleName}: ${it.message}") }
+                }
+                return START_NOT_STICKY
+            }
+        }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             } else {
                 startForeground(ID, notification)
             }
+            running = true
         } catch (e: Exception) {
             // e.g. Android refusing the "connected device" type: reading goes on, just without this.
             Dash.note("Background recording unavailable: ${e.message}")
@@ -46,6 +60,7 @@ class DriveService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
         wakeLock = null
         super.onDestroy()
@@ -59,6 +74,25 @@ class DriveService : Service() {
         fun start(context: Context) {
             runCatching { context.startForegroundService(Intent(context, DriveService::class.java)) }
                 .onFailure { Dash.note("Background recording not allowed now: ${it.message}") }
+        }
+
+        private const val MIC_ON = "mic_on"
+        private const val MIC_OFF = "mic_off"
+        @Volatile private var running = false
+
+        /**
+         * Talk listens: while LIVE records, the service also declares the microphone (Android 14 lets an
+         * app hear with the phone locked only so). True if the service runs (the result goes into Talk's log).
+         */
+        fun micOn(context: Context): Boolean {
+            if (!running) return false
+            runCatching { context.startService(Intent(context, DriveService::class.java).setAction(MIC_ON)) }
+                .onFailure { io.github.arka01.cardash.ai.Talk.note(context, "drive service: microphone not asked: ${it.message}") }
+            return true
+        }
+
+        fun micOff(context: Context) {
+            if (running) runCatching { context.startService(Intent(context, DriveService::class.java).setAction(MIC_OFF)) }
         }
 
         /** LIVE stopped. */

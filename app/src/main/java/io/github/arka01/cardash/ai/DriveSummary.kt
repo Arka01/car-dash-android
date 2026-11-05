@@ -62,7 +62,8 @@ object DriveSummary {
         "the app with this car's own rules: trust them and never judge a number yourself; OK means normal. The car " +
         "notes and earlier drives are background, not findings of this drive. FUEL NOW is the tank today, not at " +
         "the time of the drive. If the report doesn't contain the " +
-        "answer, say so. Answer in plain words, briefly."
+        "answer, say so. Copy every number exactly as written in the report, with its unit; never change, join or invent " +
+        "digits. Answer in plain words, briefly."
 
     /** [lastAskDrive] when the last question was about several drives (Drives → Ask AI). */
     const val SEVERAL = "several drives"
@@ -75,7 +76,8 @@ object DriveSummary {
         "the tank today. RPM is how fast the engine turns, not the car's speed. A car battery is charged by driving: " +
         "if it's low on charge, suggest longer drives (or a battery charger if it stays low); never say to top it up. " +
         "If the answer isn't in the data, say so. Answer in plain words in 2 to 4 sentences, with the key numbers " +
-        "and the drive tags (D1, D2 …) behind your answer. If the totals say it's only a rough sign, say so too."
+        "and the drive tags (D1, D2 …) behind your answer. If the totals say it's only a rough sign, say so too. Copy " +
+        "every number exactly as written in the data, with its unit; never change, join or invent digits."
     private const val SEVERAL_TOKENS = 700         // answer; the prompt gets the rest of the model's 4096
     private const val SEVERAL_FULL_CHARS = 8500    // longer than this: one line per drive instead of its report
 
@@ -93,7 +95,7 @@ object DriveSummary {
         }
         val full = prompt(compact = false)
         val text = if (full.length + SYSTEM_SEVERAL.length > SEVERAL_FULL_CHARS) prompt(compact = true) else full
-        val why = LocalLlm.ask(context, text, system = SYSTEM_SEVERAL, maxTokens = SEVERAL_TOKENS, shown = question)
+        val why = LocalLlm.ask(context, text, system = SYSTEM_SEVERAL, maxTokens = SEVERAL_TOKENS, shown = question, greedy = true)
         if (why == null) lastAsk.value = SEVERAL
         return why
     }
@@ -112,7 +114,7 @@ object DriveSummary {
             append("THE DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append("\n")
             append("QUESTION: ").append(question)
         }
-        val why = LocalLlm.ask(context, prompt, system = SYSTEM_QUESTION, shown = question)
+        val why = LocalLlm.ask(context, prompt, system = SYSTEM_QUESTION, shown = question, greedy = true)
         if (why == null) lastAsk.value = csvName
         return why
     }

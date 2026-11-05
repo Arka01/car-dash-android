@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
             micPermission.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
-        val why = runCatching { io.github.arka01.cardash.ai.Talk.start(this, io.github.arka01.cardash.ai.PhoneMic()) }
+        val why = runCatching { io.github.arka01.cardash.ai.Talk.startPhone(this) }
             .getOrElse { "Talk failed: ${it.message}" }
         why?.let { toast(it) }
     }
