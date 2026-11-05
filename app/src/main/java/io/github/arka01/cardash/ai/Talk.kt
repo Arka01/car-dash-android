@@ -36,7 +36,8 @@ import kotlin.math.sqrt
 /**
  * Talk (2026-11-04): ask Car Dash out loud, even while driving, and hear the answer.
  *
- * 1. Listen: the car's microphone (car screen) or the phone's, until the driver stops speaking.
+ * 1. Listen: the car's microphone (car screen only; the phone's Talk button was removed 2026-11-05,
+ *    the owner asks about drives by voice in Drives instead), until the driver stops speaking.
  *    Nothing heard (e.g. a ghost tap on the Tiago's touch screen) = it stops quietly.
  * 2. Speech to text: Android's speech recognition, on the phone itself where it can.
  * 3. The on-phone AI gets LIVE NOW (the current readings with the app's own verdicts, fuel, trip,
@@ -121,71 +122,6 @@ object Talk {
             }
         }.start()
         return null
-    }
-
-    /**
-     * Talk on the phone (2026-11-05): Android's normal speech recognition straight from the phone's
-     * microphone (the well-tested way; recognizing recorded sound failed on the owner's phone).
-     * Returns why not, or null when started.
-     */
-    fun startPhone(context: Context): String? {
-        val app = context.applicationContext
-        if (!LocalLlm.hasModel(app)) return "Talk needs the AI: import a model in Settings → AI"
-        if (active || LocalLlm.state.value.busy) return "Busy: wait for the last answer"
-        val standard = SpeechRecognizer.isRecognitionAvailable(app)
-        val recognizer = when {
-            standard -> SpeechRecognizer.createSpeechRecognizer(app)
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(app) ->
-                SpeechRecognizer.createOnDeviceSpeechRecognizer(app)
-            else -> {
-                note(app, "phone: no speech recognition on this phone")
-                return "This phone has no speech recognition"
-            }
-        }
-        val how = if (standard) "standard en-IN, phone microphone" else "on-device en-IN, phone microphone"
-        active = true
-        status.value = "Listening…"
-        LocalLlm.preload(app)
-        val pressed = System.currentTimeMillis()
-        var finished = false
-        fun end(text: String?, error: Int?) {
-            if (finished) return
-            finished = true
-            runCatching { recognizer.destroy() }
-            val heard = (System.currentTimeMillis() - pressed) / 1000.0
-            if (text.isNullOrBlank()) {
-                note(app, String.format(Locale.US, "not understood after %.1f s (%s; error %s)", heard, how, error?.toString() ?: "-"))
-                Speech.reply(app, "Sorry, I didn't catch that.")
-                finish("")
-                return
-            }
-            note(app, String.format(Locale.US, "asked after %.1f s (%s; reading %.1f/s): %s", heard, how, Dash.state.value.roundsPerSec, text))
-            status.value = "Thinking…"
-            ask(app, text) {}
-        }
-        recognizer.setRecognitionListener(object : RecognitionListener {
-            override fun onResults(results: Bundle?) =
-                end(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull(), null)
-            override fun onError(error: Int) = end(null, error)
-            override fun onEndOfSpeech() {
-                status.value = "Understanding…"
-            }
-            override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, app.packageName)
-        }
-        return runCatching { recognizer.startListening(intent) }.fold({ null }, {
-            end(null, -1)
-            "Talk failed: ${it.message}"
-        })
     }
 
     /** The question to the AI with LIVE NOW; the answer is spoken and logged. */

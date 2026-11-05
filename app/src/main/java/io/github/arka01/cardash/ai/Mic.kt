@@ -6,8 +6,7 @@ import androidx.car.app.media.CarAudioRecord
 
 /**
  * Where Talk hears the driver from the car screen: 16 kHz mono 16-bit sound, read in small pieces,
- * from the car's own microphone through Android Auto. (Talk on the phone uses Android's speech
- * recognition with the phone's microphone directly: ai/Talk.startPhone.)
+ * from the car's own microphone through Android Auto.
  */
 interface Mic {
     val name: String

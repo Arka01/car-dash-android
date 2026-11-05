@@ -74,7 +74,6 @@ class Actions(
     val askDrive: (String) -> Unit,           // ask about this drive by voice (CSV file name)
     val askDrives: (List<String>) -> Unit,    // ask about several drives by voice (CSV file names)
     val shareDrives: (List<String>) -> Unit,  // ZIP of several drives + the last AI answer about them
-    val talk: () -> Unit,                     // Talk with the phone's microphone (ai/Talk)
     val chooseCar: (String) -> Unit,          // switch to this car (folder name)
     val newCar: () -> Unit,
     val scanCar: () -> Unit,                  // read-only scan of the car's computers

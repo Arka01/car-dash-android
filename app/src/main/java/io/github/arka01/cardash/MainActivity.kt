@@ -44,8 +44,6 @@ class MainActivity : ComponentActivity() {
     private var voiceOn by mutableStateOf(true)
     private var aiSettings by mutableStateOf<AiSettings?>(null)
 
-    /** IMPORT MODEL: Android's file picker; the chosen .litertlm file is copied into the app. */
-    /** Talk (phone): asks for the microphone the first time, then starts. */
     /**
      * Drives → Ask a question by voice (2026-11-05, owner: speak instead of typing): Android's own
      * "Speak now" window (Google's speech recognition, its own microphone access). The words it heard
@@ -72,20 +70,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) talk() else toast("Talk needs the microphone")
-    }
-
-    private fun talk() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            micPermission.launch(Manifest.permission.RECORD_AUDIO)
-            return
-        }
-        val why = runCatching { io.github.arka01.cardash.ai.Talk.startPhone(this) }
-            .getOrElse { "Talk failed: ${it.message}" }
-        why?.let { toast(it) }
-    }
-
+    /** IMPORT MODEL: Android's file picker; the chosen .litertlm file is copied into the app. */
     private val pickModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) LocalLlm.importModel(this, uri)?.let { toast(it) }
     }
@@ -116,7 +101,6 @@ class MainActivity : ComponentActivity() {
             askDrive = ::askAboutDrive,
             askDrives = ::askAboutDrives,
             shareDrives = ::shareDrives,
-            talk = ::talk,
             chooseCar = ::switchCar,
             newCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = true) } },
             scanCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
