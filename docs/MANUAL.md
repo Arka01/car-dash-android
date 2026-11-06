@@ -28,7 +28,7 @@ Car Dash only **reads** data from the car. It never changes, resets or clears an
    - **Nearby devices**, to talk to the adapter over Bluetooth.
    - **Notifications**, for the "Recording your drive" notice (see section 6).
 4. **Choose your adapter**: ☰ → **Settings → Connection → Choose adapter**.
-5. **Add your car**: tap the car at the top of the sidebar (☰) → **+ Add a new car**. With the ignition on (engine running is best), Car Dash connects, reads your car's chassis number (VIN) and what it supports, and then asks a few questions. All of them are optional:
+5. **Add your car**: tap the car at the top of the sidebar (☰) → **+ Add a new car** → **Scan** (the vLinker plugged into that vehicle). With the ignition on (engine running is best), Car Dash connects, reads your car's chassis number (VIN) and what it supports, and then asks a few questions. All of them are optional:
    - the car's name
    - fuel type
    - fuel tank size

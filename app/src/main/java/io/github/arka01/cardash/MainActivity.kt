@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import io.github.arka01.cardash.ai.AiSettings
@@ -102,7 +103,7 @@ class MainActivity : ComponentActivity() {
             askDrives = ::askAboutDrives,
             shareDrives = ::shareDrives,
             chooseCar = ::switchCar,
-            newCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = true) } },
+            newCar = ::addCar,
             scanCar = { readyAdapter()?.let { Dash.startProbe(this, it, newCar = false) } },
             editCar = ::editCar,
             refuel = ::refuel,
@@ -124,6 +125,15 @@ class MainActivity : ComponentActivity() {
             val snap by Dash.state.collectAsState()
             // A finished NEW CAR scan of a car not set up yet: ask the questions.
             LaunchedEffect(snap.probe) { snap.probe?.let { askNewCar(it) } }
+            // A scan that ended without the questions (couldn't connect, no answer, …): say so plainly
+            // (2026-11-06: "Add a new car" away from the vehicle looked like nothing happened).
+            var lastMode by remember { mutableStateOf(snap.mode) }
+            LaunchedEffect(snap.mode) {
+                if (lastMode == Mode.PROBE && snap.mode == Mode.OFF && snap.probe == null && snap.status != "Stopped") {
+                    scanEnded(snap.status)
+                }
+                lastMode = snap.mode
+            }
             CarDashApp(adapterName, voiceOn, aiSettings ?: LocalLlm.settings(this), actions)
         }
 
@@ -291,6 +301,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+    /** Add a new car: what's needed first, then the scan (the questions come after it). */
+    private fun addCar() {
+        AlertDialog.Builder(this)
+            .setTitle("Add a new car")
+            .setMessage("1. Plug the vLinker into the new vehicle's diagnostic port.\n" +
+                "2. Ignition on (engine running is best).\n" +
+                "3. Tap Scan and keep Car Dash open: about 30 seconds, it only reads.\n\n" +
+                "Then a few questions about the vehicle (name, fuel, tank and engine size).")
+            .setPositiveButton("Scan") { _, _ ->
+                readyAdapter()?.let {
+                    Dash.startProbe(this, it, newCar = true)
+                    toast("Connecting to the vLinker…")
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** A scan ended without the new-car questions: why, in plain words. */
+    private fun scanEnded(status: String) {
+        val message = if (status.startsWith("Scan failed")) {
+            "Couldn't reach the vLinker. Check that it's plugged into the vehicle with the ignition on, " +
+                "and that the phone's Bluetooth is on, then try again.\n\n($status)"
+        } else status
+        AlertDialog.Builder(this)
+            .setTitle("Scan finished")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
+    }
 
     /** The NEW CAR questions (new_car_probe.py asks the same); every answer is optional. */
     private fun askNewCar(p: ProbeResult) {
