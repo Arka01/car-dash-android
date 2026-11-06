@@ -91,7 +91,7 @@ object Talk {
             if (DriveService.micOn(app)) Thread.sleep(300)
             val focus = holdFocus(app)
             val sound = try {
-                listen(mic)
+                listen(app, mic)
             } catch (e: Throwable) {
                 note(app, "mic failed (${mic.name}): ${e.javaClass.simpleName}: ${e.message}")
                 null
@@ -166,7 +166,7 @@ object Talk {
      * check, measured against the first moment's background noise (engine, road). Null if no speech
      * started within [START_TIMEOUT_MS]. At most [MAX_MS] of sound.
      */
-    private fun listen(mic: Mic): ByteArray? {
+    private fun listen(app: Context, mic: Mic): ByteArray? {
         val out = ByteArrayOutputStream()
         val frame = ByteArray(Mic.RATE / 50 * 2)   // up to 20 ms (the car's microphone may give less per read)
         var noise = 0.0
@@ -174,29 +174,53 @@ object Talk {
         var speechMs = 0
         var quietMs = 0
         var heardAt = -1L
+        // For the log (2026-11-06: the car gave "nothing heard" every time; why it stopped and how loud it was).
+        var ms = 0L
+        var reads = 0
+        var silent = 0
+        var loudest = 0.0
+        var firstData = -1L
+        var why = "?"
+        val opened = System.currentTimeMillis()
         mic.start()
         try {
             while (true) {
                 val n = mic.read(frame)
-                if (n <= 0) break
+                if (n <= 0) {
+                    why = "the car closed the microphone (read $n)"
+                    break
+                }
+                if (firstData < 0) firstData = System.currentTimeMillis() - opened
+                reads++
                 bytes += n
-                val ms = bytes * 1000 / (Mic.RATE * 2)   // time into the recording
+                ms = bytes * 1000 / (Mic.RATE * 2)   // time into the recording
                 val pieceMs = n * 1000 / (Mic.RATE * 2)
                 val level = rms(frame, n)
+                if (level == 0.0) silent++
                 if (ms <= 200) noise = maxOf(noise, level)   // the first 200 ms: background noise
+                else loudest = maxOf(loudest, level)
                 val loud = ms > 200 && level > maxOf(noise * 2.5, 300.0)
                 out.write(frame, 0, n)   // keep the start too: the first word may be quiet
                 if (heardAt < 0) {
                     speechMs = if (loud) speechMs + pieceMs else 0
                     if (speechMs >= 100) heardAt = ms   // 100 ms of speech
-                    if (heardAt < 0 && ms > START_TIMEOUT_MS) return null
+                    if (heardAt < 0 && ms > START_TIMEOUT_MS) {
+                        why = "no speech within ${START_TIMEOUT_MS / 1000} s"
+                        return null
+                    }
                 } else {
                     quietMs = if (loud) 0 else quietMs + pieceMs
-                    if (quietMs >= END_SILENCE_MS || ms > MAX_MS) break
+                    if (quietMs >= END_SILENCE_MS) { why = "quiet after speaking"; break }
+                    if (ms > MAX_MS) { why = "${MAX_MS / 1000} s limit"; break }
                 }
             }
         } finally {
             runCatching { mic.stop() }
+            note(app, String.format(Locale.US,
+                "listened %.1f s of sound: %s; %d reads (%d all-zero), first sound after %d ms; background %.0f, " +
+                    "loudest %.0f, speech needs over %.0f; speech %s",
+                ms / 1000.0, why, reads, silent, firstData, noise, loudest, maxOf(noise * 2.5, 300.0),
+                if (heardAt >= 0) String.format(Locale.US, "from %.1f s", heardAt / 1000.0) else "not found"))
         }
         return if (heardAt >= 0) out.toByteArray() else null
     }
