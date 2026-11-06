@@ -254,8 +254,8 @@ not for use while driving; on the phone, Drives → 🎤 Ask a question instead)
 recording is boosted (peak → 24000, at most ×20) and kept as the car's `talk_last.wav` (last one only; in the drive ZIP). Needs Android 13+ (speech recognition from recorded sound),
 `RECORD_AUDIO` (asked on first use) and the model. Steps: listen (16 kHz PCM; background noise from the first 200 ms,
 speech = 2.5× that and > 300 for 100 ms; stops after 1.2 s quiet or 12 s; nothing in 5 s = quiet stop, e.g. a ghost tap;
-music paused with audio focus) → speech to text for the car mic (`SpeechRecognizer` with `EXTRA_AUDIO_SOURCE`: the standard service en-IN (may go
-online), then on-device en-IN, then on-device default; "no words" moves on to the next) → while LIVE, `DriveService` adds the
+music paused with audio focus) → **the model hears the WAV itself** (since 0.1.45: `Content.AudioBytes` + `EngineConfig.audioBackend` = CPU, loaded only for Talk; it writes `HEARD:` and `ANSWER:`, both logged; reason: the recognizers below said "no words" for every recording although `talk_last.wav` was clear speech). Only if the model fails with sound (a file without its audio part): speech to text (`SpeechRecognizer` with `EXTRA_AUDIO_SOURCE`: the standard service en-IN (may go
+online), then on-device en-IN, then on-device default; "no words" moves on to the next), then the model with the text → while LIVE, `DriveService` adds the
 `microphone` foreground-service type while listening (Android 14 "while in use"; result logged) → the model (preloaded while listening) gets
 **LIVE NOW** (`Talk.live`: speed/rpm/gear, temperatures with `Rules` levels, engine state, battery, fuel/range,
 consumption, trip, alerts, trouble codes) + the question, answers in ≤ 120 tokens, greedy (topK 1) → `ai/NumberCheck`: numbers not in the prompt (rounding, D tags, clock

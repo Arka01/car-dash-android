@@ -316,7 +316,7 @@ When fuel is low, the Dash reminds you to fill to the click and log it, until Ca
 - **Everything stays on your phone:** drives, reports, AI summaries and car settings, in the app's private storage. Uninstalling the app deletes them.
 - **Nothing is sent anywhere.** Car Dash has no account, no ads and no analytics, and the AI runs on the phone. Files leave the phone only when **you** tap **Share**.
 - **Spoken questions in Drives** use Android's own **Speak now** window (Google's speech recognition), which may send your words to Google to recognise them.
-- **Talk:** the car's microphone is used only while Talk listens. The sound of your **last** question is kept on the phone (replaced by the next one) so a problem with Talk can be checked; it leaves the phone only inside a drive's ZIP when you tap **Share**. Your words are turned into text by the phone's speech recognition, on the phone itself where it can. If the phone has no offline English for that, Android's standard speech service is used, which may send the recording to Google to recognise it.
+- **Talk:** the car's microphone is used only while Talk listens. The sound of your **last** question is kept on the phone (replaced by the next one) so a problem with Talk can be checked; it leaves the phone only inside a drive's ZIP when you tap **Share**. The on-phone AI listens to your question itself, so it stays on the phone. Only if your AI model file can't take sound does Car Dash fall back to the phone's speech recognition, which may send the recording to Google to recognise it.
 - **Read-only:** Car Dash only reads standard diagnostic data. It never writes to, resets or clears anything in your car (including fault codes).
 - **Bluetooth** is used only to talk to the adapter you chose.
 

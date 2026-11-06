@@ -88,6 +88,7 @@ object LocalLlm {
     @Volatile private var engine: Engine? = null
     @Volatile private var engineGpu: Boolean? = null      // backend the loaded engine really uses
     @Volatile private var engineWanted: Boolean? = null   // the setting it was loaded for (GPU may have fallen back)
+    @Volatile private var engineAudio = false             // loaded with its audio part (Talk: it hears the question)
     @Volatile private var conversation: Conversation? = null
     @Volatile private var job: Job? = null
     @Volatile private var unloadJob: Job? = null
@@ -234,6 +235,7 @@ object LocalLlm {
         allowLive: Boolean = false,
         shown: String? = null,   // what the AI screen shows as the question (default: [question])
         greedy: Boolean = false, // facts (questions, Talk): always the likeliest word, so numbers are copied exactly
+        audio: ByteArray? = null, // Talk: the driver's question as WAV sound, given to the model with [question]
         onDone: ((String?) -> Unit)? = null,
     ): String? {
         val app = context.applicationContext
@@ -255,7 +257,7 @@ object LocalLlm {
             val started = System.currentTimeMillis()
             try {
                 lock.withLock {
-                    val e = load(app, model, s.gpu)
+                    val e = load(app, model, s.gpu, audio = audio != null)
                     status("thinking…")
                     CrashReport.step("conversation: creating")
                     val c = e.createConversation(
@@ -275,7 +277,7 @@ object LocalLlm {
                         // function that no longer exists in the newer coroutines this app uses (crash report
                         // 2026-10-31: NoSuchMethodError SendChannel.close$default at the end of the answer).
                         suspendCancellableCoroutine { done ->
-                            c.sendMessageAsync(question, object : MessageCallback {
+                            val callback = object : MessageCallback {
                                 override fun onMessage(message: Message) {
                                     if (firstAt == 0L) {
                                         firstAt = System.currentTimeMillis()
@@ -293,7 +295,9 @@ object LocalLlm {
                                 override fun onError(throwable: Throwable) {
                                     if (done.isActive) done.resumeWithException(throwable)
                                 }
-                            })
+                            }
+                            if (audio == null) c.sendMessageAsync(question, callback)
+                            else c.sendMessageAsync(Contents.of(Content.AudioBytes(audio), Content.Text(question)), callback)
                             done.invokeOnCancellation { runCatching { c.cancelProcess() } }
                         }
                     } finally {
@@ -320,10 +324,10 @@ object LocalLlm {
                 throw e
             } catch (e: Throwable) {
                 CrashReport.step("failed: ${e.javaClass.name}: ${e.message}")
-                onDone?.invoke(null)
                 val tooLong = (e.message ?: "").contains("token", ignoreCase = true)
                 status("failed: ${e.message ?: e.javaClass.simpleName}" +
                     if (tooLong) " (question + answer too long? lower 'max answer')" else "")
+                onDone?.invoke(null)   // after the status: Talk logs it
             } finally {
                 store.update { it.copy(busy = false) }
                 scheduleUnload()
@@ -333,13 +337,13 @@ object LocalLlm {
     }
 
     /** Talk: starts loading the model while the driver is still speaking, so the answer comes sooner. */
-    fun preload(context: Context) {
+    fun preload(context: Context, audio: Boolean = false) {
         val app = context.applicationContext
         val model = modelFile(app) ?: return
         if (store.value.busy) return
         val gpu = settings(app).gpu
         scope.launch {
-            runCatching { lock.withLock { load(app, model, gpu) } }
+            runCatching { lock.withLock { load(app, model, gpu, audio) } }
             if (!store.value.busy) status("ready")
             scheduleUnload()
         }
@@ -361,18 +365,23 @@ object LocalLlm {
         }
     }
 
-    /** The engine for [model]; loads it (GPU, else CPU) unless it's loaded for this setting already. */
-    private fun load(context: Context, model: File, gpu: Boolean): Engine {
+    /**
+     * The engine for [model]; loads it (GPU, else CPU) unless it's loaded for this setting already.
+     * [audio]: with the model's audio part too (on the CPU, as Google's examples do); only Talk needs
+     * it, so the drive summaries don't pay its memory.
+     */
+    private fun load(context: Context, model: File, gpu: Boolean, audio: Boolean = false): Engine {
         unloadJob?.cancel()
-        engine?.let { if (engineWanted == gpu) return it.also { CrashReport.step("engine: already loaded") } }
+        engine?.let { if (engineWanted == gpu && (engineAudio || !audio)) return it.also { CrashReport.step("engine: already loaded") } }
         unload()
         status("loading model (${if (gpu) "GPU" else "CPU"}, ~10 s)…")
         fun open(useGpu: Boolean): Engine {
-            CrashReport.step("engine: creating (${if (useGpu) "GPU" else "CPU"}, context $CONTEXT_TOKENS tokens, cache ${context.cacheDir.path})")
+            CrashReport.step("engine: creating (${if (useGpu) "GPU" else "CPU"}${if (audio) " + audio" else ""}, context $CONTEXT_TOKENS tokens, cache ${context.cacheDir.path})")
             val e = Engine(
                 EngineConfig(
                     modelPath = model.path,
                     backend = if (useGpu) Backend.GPU() else Backend.CPU(),
+                    audioBackend = if (audio) Backend.CPU() else null,
                     maxNumTokens = CONTEXT_TOKENS,
                     cacheDir = context.cacheDir.path,   // makes the next load faster
                 ),
@@ -389,6 +398,7 @@ object LocalLlm {
             engine = e
             engineGpu = useGpu
             engineWanted = gpu
+            engineAudio = audio
             return e
         }
         return try {
@@ -414,5 +424,6 @@ object LocalLlm {
         engine = null
         engineGpu = null
         engineWanted = null
+        engineAudio = false
     }
 }

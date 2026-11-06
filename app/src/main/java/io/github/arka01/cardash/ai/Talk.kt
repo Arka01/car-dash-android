@@ -39,9 +39,11 @@ import kotlin.math.sqrt
  * 1. Listen: the car's microphone (car screen only; the phone's Talk button was removed 2026-11-05,
  *    the owner asks about drives by voice in Drives instead), until the driver stops speaking.
  *    Nothing heard (e.g. a ghost tap on the Tiago's touch screen) = it stops quietly.
- * 2. Speech to text: Android's speech recognition, on the phone itself where it can.
- * 3. The on-phone AI gets LIVE NOW (the current readings with the app's own verdicts, fuel, trip,
- *    warnings; ~400 tokens, so it answers in a few seconds) and the question; 1-2 sentences.
+ * 2. The on-phone AI hears the recording itself (2026-11-06: Android's speech recognition heard "no
+ *    words" in every recording handed to it, though the saved sound was clear speech) together with
+ *    LIVE NOW (the current readings with the app's own verdicts, fuel, trip, warnings; ~400 tokens)
+ *    and writes what it heard, then a 1-2 sentence answer. A model file without its audio part:
+ *    Android's speech recognition, then the AI with the text, as before.
  * 4. The answer is spoken (car speakers with Android Auto).
  *
  * Unlike the other AI uses, Talk runs while LIVE reads the car. Every Talk is written to the car's
@@ -55,6 +57,11 @@ object Talk {
         "no symbols, rounded numbers. If the data doesn't answer the question, say so briefly. RPM is how fast the " +
         "engine turns, not the car's speed. Never ask the driver to look at the phone. Copy every number exactly as " +
         "written in the data, with its unit; never change, join or invent digits; if unsure of a number, leave it out."
+
+    /** Talk with sound: the AI writes what it heard, then its answer (both read by askHeard). */
+    private const val HEARD = "The driver's question is in the audio. Reply in exactly this form:\n" +
+        "HEARD: <the question, word for word>\nANSWER: <your answer>\n" +
+        "If there is no clear question in the audio, write HEARD: (nothing) and ANSWER: Sorry, I didn't catch that."
 
     private val status = MutableStateFlow("")
     /** What Talk is doing, for the Dash: "Listening…", "Thinking…", or "" when idle. */
@@ -83,7 +90,7 @@ object Talk {
             main.post { show(text) }
         }
         say("Listening…")
-        LocalLlm.preload(app)   // loads the model while the driver speaks (~10 s the first time)
+        LocalLlm.preload(app, audio = true)   // loads the model while the driver speaks (~10 s the first time)
         Thread {
             val pressed = System.currentTimeMillis()
             // While LIVE, the drive service also declares the microphone, so Android lets Car Dash hear
@@ -109,45 +116,57 @@ object Talk {
             val loud = boost(sound)
             note(app, String.format(Locale.US, "volume boost x%.1f (loudest sample %d → %d)", loud.second, loud.third, peak(loud.first)))
             saveLast(app, loud.first)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@Thread
-            recognize(app, loud.first) { text, how ->
-                val heard = (System.currentTimeMillis() - pressed) / 1000.0
-                if (text.isNullOrBlank()) {
-                    note(app, String.format(Locale.US, "not understood after %.1f s (%s; %s)", heard, mic.name, how))
-                    Speech.reply(app, "Sorry, I didn't catch that.")
-                    finish("")
-                    return@recognize
-                }
-                note(app, String.format(Locale.US, "asked after %.1f s (%s; %s; reading %.1f/s): %s",
-                    heard, mic.name, how, Dash.state.value.roundsPerSec, text))
-                say("Thinking…")
-                ask(app, text, show)
-            }
+            say("Thinking…")
+            askHeard(app, wav(loud.first), pressed, mic, show) { recognizeAndAsk(app, loud.first, pressed, mic, show) }
         }.start()
         return null
     }
 
-    /** The question to the AI with LIVE NOW; the answer is spoken and logged. */
-    private fun ask(app: Context, question: String, show: (String) -> Unit) {
-        val asked = System.currentTimeMillis()
-        val prompt = live(Dash.state.value) + "\nQUESTION: " + question
-        val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = TOKENS, allowLive = true, shown = question,
-            greedy = true) { answer ->
-            val text = answer?.let { DriveSummary.plain(it).replace(Regex("\\s+"), " ").trim() }.orEmpty()
-            // Numbers not in LIVE NOW: those sentences aren't spoken (no time for a second try while driving).
-            val bad = NumberCheck.bad(text, SYSTEM + "\n" + prompt)
-            val spoken = if (bad.isEmpty()) text else NumberCheck.withoutBad(text, bad)
-            note(app, String.format(Locale.US, "answered in %.1f s (%s; reading %.1f/s): %s%s",
-                (System.currentTimeMillis() - asked) / 1000.0, LocalLlm.state.value.stats, Dash.state.value.roundsPerSec,
-                text.ifEmpty { "(no answer)" }, if (bad.isEmpty()) "" else " | not in the data, not spoken: ${bad.joinToString(", ")}"))
-            val say = when {
-                text.isEmpty() -> "Sorry, I couldn't answer that."
-                spoken.isEmpty() -> "I'm not sure about that one. Ask me again when you're parked."
-                else -> spoken
+    /** The old way (a model file that can't hear): Android's speech recognition, then the AI with the text. */
+    private fun recognizeAndAsk(app: Context, sound: ByteArray, pressed: Long, mic: Mic, show: (String) -> Unit) {
+        say(app, show, "Understanding…")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) { finish(""); return }
+        recognize(app, sound) { text, how ->
+            val heard = (System.currentTimeMillis() - pressed) / 1000.0
+            if (text.isNullOrBlank()) {
+                note(app, String.format(Locale.US, "not understood after %.1f s (%s; %s)", heard, mic.name, how))
+                Speech.reply(app, "Sorry, I didn't catch that.")
+                finish("")
+                return@recognize
             }
-            Speech.reply(app, say)
-            lastTalk.value = "You: $question\nCar Dash: $say"
-            finish("")
+            note(app, String.format(Locale.US, "asked after %.1f s (%s; %s; reading %.1f/s): %s",
+                heard, mic.name, how, Dash.state.value.roundsPerSec, text))
+            say(app, show, "Thinking…")
+            ask(app, text, show)
+        }
+    }
+
+    private fun say(app: Context, show: (String) -> Unit, text: String) {
+        status.value = text
+        main.post { show(text) }
+    }
+
+    /**
+     * The question as sound straight to the AI, with LIVE NOW: it writes "HEARD: …" and "ANSWER: …".
+     * [cannotHear] runs if the model fails with sound (e.g. its file has no audio part).
+     */
+    private fun askHeard(app: Context, wav: ByteArray, pressed: Long, mic: Mic, show: (String) -> Unit, cannotHear: () -> Unit) {
+        val asked = System.currentTimeMillis()
+        val prompt = live(Dash.state.value) + "\n" + HEARD
+        val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = TOKENS + 40, allowLive = true,
+            shown = "(spoken question)", greedy = true, audio = wav) { answer ->
+            if (answer == null) {
+                note(app, "the AI couldn't take the sound (${LocalLlm.state.value.status}); trying speech recognition")
+                cannotHear()
+                return@ask
+            }
+            val heard = Regex("""HEARD:\s*(.*)""", RegexOption.IGNORE_CASE).find(answer)?.groupValues?.get(1)
+                ?.substringBefore("ANSWER:")?.trim().orEmpty()
+            val reply = Regex("""ANSWER:\s*([\s\S]*)""", RegexOption.IGNORE_CASE).find(answer)?.groupValues?.get(1)
+                ?: answer.replace(Regex("""HEARD:.*""", RegexOption.IGNORE_CASE), "")
+            note(app, String.format(Locale.US, "heard by the AI after %.1f s (%s; reading %.1f/s): %s",
+                (System.currentTimeMillis() - pressed) / 1000.0, mic.name, Dash.state.value.roundsPerSec, heard.ifEmpty { "?" }))
+            speak(app, heard.ifEmpty { "(not clear)" }, reply, prompt + "\n" + heard, asked)
         }
         if (why != null) {
             note(app, "not asked: $why")
@@ -155,6 +174,39 @@ object Talk {
             finish("")
             main.post { show(why) }
         }
+    }
+
+    /** The question to the AI with LIVE NOW; the answer is spoken and logged. */
+    private fun ask(app: Context, question: String, show: (String) -> Unit) {
+        val asked = System.currentTimeMillis()
+        val prompt = live(Dash.state.value) + "\nQUESTION: " + question
+        val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = TOKENS, allowLive = true, shown = question,
+            greedy = true) { answer -> speak(app, question, answer, prompt, asked) }
+        if (why != null) {
+            note(app, "not asked: $why")
+            Speech.reply(app, "Sorry, the AI isn't ready.")
+            finish("")
+            main.post { show(why) }
+        }
+    }
+
+    /** Speaks the AI's [answer] (null = it failed) and logs it; [source] = what its numbers may come from. */
+    private fun speak(app: Context, question: String, answer: String?, source: String, asked: Long) {
+        val text = answer?.let { DriveSummary.plain(it).replace(Regex("\\s+"), " ").trim() }.orEmpty()
+        // Numbers not in LIVE NOW: those sentences aren't spoken (no time for a second try while driving).
+        val bad = NumberCheck.bad(text, SYSTEM + "\n" + source)
+        val spoken = if (bad.isEmpty()) text else NumberCheck.withoutBad(text, bad)
+        note(app, String.format(Locale.US, "answered in %.1f s (%s; reading %.1f/s): %s%s",
+            (System.currentTimeMillis() - asked) / 1000.0, LocalLlm.state.value.stats, Dash.state.value.roundsPerSec,
+            text.ifEmpty { "(no answer)" }, if (bad.isEmpty()) "" else " | not in the data, not spoken: ${bad.joinToString(", ")}"))
+        val say = when {
+            text.isEmpty() -> "Sorry, I couldn't answer that."
+            spoken.isEmpty() -> "I'm not sure about that one. Ask me again when you're parked."
+            else -> spoken
+        }
+        Speech.reply(app, say)
+        lastTalk.value = "You: $question\nCar Dash: $say"
+        finish("")
     }
 
     private fun finish(text: String) {
@@ -453,15 +505,18 @@ object Talk {
      */
     private fun saveLast(context: Context, sound: ByteArray) {
         val file: File = Dash.state.value.car?.file("talk_last.wav") ?: File(context.filesDir, "talk_last.wav")
-        runCatching {
-            val header = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN).apply {
-                put("RIFF".toByteArray()); putInt(36 + sound.size); put("WAVE".toByteArray())
-                put("fmt ".toByteArray()); putInt(16); putShort(1); putShort(1)   // PCM, mono
-                putInt(Mic.RATE); putInt(Mic.RATE * 2); putShort(2); putShort(16)
-                put("data".toByteArray()); putInt(sound.size)
-            }.array()
-            file.outputStream().use { it.write(header); it.write(sound) }
-        }
+        runCatching { file.writeBytes(wav(sound)) }
+    }
+
+    /** The recording (16-bit mono PCM) as a WAV file's bytes: what the AI and talk_last.wav get. */
+    private fun wav(sound: ByteArray): ByteArray {
+        val header = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN).apply {
+            put("RIFF".toByteArray()); putInt(36 + sound.size); put("WAVE".toByteArray())
+            put("fmt ".toByteArray()); putInt(16); putShort(1); putShort(1)   // PCM, mono
+            putInt(Mic.RATE); putInt(Mic.RATE * 2); putShort(2); putShort(16)
+            put("data".toByteArray()); putInt(sound.size)
+        }.array()
+        return header + sound
     }
 
     private const val TARGET_PEAK = 24_000   // ~73 % of full scale: loud, with room to spare
