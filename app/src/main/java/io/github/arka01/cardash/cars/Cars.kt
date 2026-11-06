@@ -21,7 +21,9 @@ import java.io.File
 object Cars {
     const val DEFAULT = "tata_tiago_2023"
     private const val ASSETS = "cars"
-    private const val TEMPLATE = "_template"
+    // Not in cars/ and not "_template": Android leaves asset folders starting with "_" out of the app
+    // (aapt's default ignore list), so adding a new car crashed at Set up (2026-11-06, the Hunter 350).
+    private const val TEMPLATE = "car_template/car.json"
     private const val PREFS = "car"
 
     @Volatile private var rootDir: File? = null
@@ -129,7 +131,7 @@ object Cars {
     ): String {
         val name = withMaker(title, maker)
         val key = freeFolder(folderName(name))
-        val settings = JSONObject(readAsset(context, "$ASSETS/$TEMPLATE/car.json"))
+        val settings = JSONObject(readAsset(context, TEMPLATE))
         settings.put("name", name)
         settings.put("short_name", shortName(name, maker))
         settings.put("brand", maker ?: JSONObject.NULL)
