@@ -106,8 +106,11 @@ object Talk {
                 return@Thread
             }
             say("Understanding…")
+            val loud = boost(sound)
+            note(app, String.format(Locale.US, "volume boost x%.1f (loudest sample %d → %d)", loud.second, loud.third, peak(loud.first)))
+            saveLast(app, loud.first)
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@Thread
-            recognize(app, sound) { text, how ->
+            recognize(app, loud.first) { text, how ->
                 val heard = (System.currentTimeMillis() - pressed) / 1000.0
                 if (text.isNullOrBlank()) {
                     note(app, String.format(Locale.US, "not understood after %.1f s (%s; %s)", heard, mic.name, how))
@@ -411,6 +414,58 @@ object Talk {
         }
     }
 
+    /**
+     * The recording made louder (2026-11-06: the car's microphone gave speech at only ~3 % of full
+     * scale, and every recognizer heard "no words"): its loudest sample up to [TARGET_PEAK], at most
+     * [MAX_GAIN] times. Returns the louder sound, the gain and the loudest sample before.
+     */
+    private fun boost(sound: ByteArray): Triple<ByteArray, Double, Int> {
+        val before = peak(sound)
+        val gain = if (before == 0) 1.0 else minOf(MAX_GAIN, TARGET_PEAK.toDouble() / before).coerceAtLeast(1.0)
+        if (gain == 1.0) return Triple(sound, 1.0, before)
+        val out = ByteArray(sound.size)
+        var i = 0
+        while (i + 1 < sound.size) {
+            val v = ((sound[i + 1].toInt() shl 8) or (sound[i].toInt() and 0xFF)).toShort().toInt()
+            val w = (v * gain).toInt().coerceIn(-32768, 32767)
+            out[i] = (w and 0xFF).toByte()
+            out[i + 1] = ((w shr 8) and 0xFF).toByte()
+            i += 2
+        }
+        return Triple(out, gain, before)
+    }
+
+    private fun peak(sound: ByteArray): Int {
+        var max = 0
+        var i = 0
+        while (i + 1 < sound.size) {
+            val v = ((sound[i + 1].toInt() shl 8) or (sound[i].toInt() and 0xFF)).toShort().toInt()
+            if (kotlin.math.abs(v) > max) max = kotlin.math.abs(v)
+            i += 2
+        }
+        return max
+    }
+
+    /**
+     * The last question's sound as talk_last.wav in the car's folder (replaced each time, never sent
+     * anywhere; it goes into a drive's ZIP only when the owner shares it), to check what the
+     * recognizer was given.
+     */
+    private fun saveLast(context: Context, sound: ByteArray) {
+        val file: File = Dash.state.value.car?.file("talk_last.wav") ?: File(context.filesDir, "talk_last.wav")
+        runCatching {
+            val header = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN).apply {
+                put("RIFF".toByteArray()); putInt(36 + sound.size); put("WAVE".toByteArray())
+                put("fmt ".toByteArray()); putInt(16); putShort(1); putShort(1)   // PCM, mono
+                putInt(Mic.RATE); putInt(Mic.RATE * 2); putShort(2); putShort(16)
+                put("data".toByteArray()); putInt(sound.size)
+            }.array()
+            file.outputStream().use { it.write(header); it.write(sound) }
+        }
+    }
+
+    private const val TARGET_PEAK = 24_000   // ~73 % of full scale: loud, with room to spare
+    private const val MAX_GAIN = 20.0
     private const val START_TIMEOUT_MS = 5_000    // no speech by then: stop (e.g. a ghost tap)
     private const val END_SILENCE_MS = 1_200      // quiet this long after speaking = done
     private const val MAX_MS = 12_000

@@ -248,7 +248,7 @@ class MainActivity : ComponentActivity() {
      * let the developer check the fuel numbers and how Talk affects the readings.
      */
     private fun fuelState(csv: java.io.File): List<java.io.File> =
-        listOf("fuel_state.json", "talk_log.txt").mapNotNull { name ->
+        listOf("fuel_state.json", "talk_log.txt", "talk_last.wav").mapNotNull { name ->
             csv.parentFile?.parentFile?.let { java.io.File(it, name) }?.takeIf { it.exists() }
         }
 

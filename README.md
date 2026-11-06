@@ -250,7 +250,8 @@ temperatures, unreliable outside-air reading, the owner's limits) and one line p
 **Talk** (`ai/Talk.kt`, `ai/Mic.kt`): **Talk** = first tile on the car screen (top left; car mic via `CarAudioRecord`, car app
 API level 5; redraws paused 2 s after a tap; every tap, permission result and error in `talk_log.txt`). Car screen only: the phone Dash's **🎤 Talk** (`Talk.startPhone`) was removed 2026-11-05 (owner:
 not for use while driving; on the phone, Drives → 🎤 Ask a question instead). Needs `androidx.car.app:app-projected`
-(`CarAudioRecord.create` loads `ProjectedCarAudioRecord` by reflection; without it: IllegalStateException). Needs Android 13+ (speech recognition from recorded sound),
+(`CarAudioRecord.create` loads `ProjectedCarAudioRecord` by reflection; without it: IllegalStateException). 2026-11-06: the car mic gives speech at ~3 % of full scale and all recognizers said "no words": the
+recording is boosted (peak → 24000, at most ×20) and kept as the car's `talk_last.wav` (last one only; in the drive ZIP). Needs Android 13+ (speech recognition from recorded sound),
 `RECORD_AUDIO` (asked on first use) and the model. Steps: listen (16 kHz PCM; background noise from the first 200 ms,
 speech = 2.5× that and > 300 for 100 ms; stops after 1.2 s quiet or 12 s; nothing in 5 s = quiet stop, e.g. a ghost tap;
 music paused with audio focus) → speech to text for the car mic (`SpeechRecognizer` with `EXTRA_AUDIO_SOURCE`: the standard service en-IN (may go
