@@ -309,7 +309,7 @@ object Dash {
         Cars.setActive(context, key)
         val car = Cars.load(key)
         synchronized(this) { store.value = store.value.copy(probe = null, car = car, status = "New car set up: ${car.shortName}") }
-        log(generation, "Set up cars/$key. Drive through every gear, then [GEARS].")
+        log(generation, "Set up cars/$key. Gears are learned while driving.")
         return key
     }
 

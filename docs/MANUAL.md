@@ -34,6 +34,7 @@ Car Dash only **reads** data from the car. It never changes, resets or clears an
    - fuel tank size
    - engine size
    - the RPM where you want a red warning (your own limit)
+   After **Set up**, Car Dash starts reading the vehicle straight away. Motorbikes work too: if the engine computer isn't where cars usually have it, Car Dash finds it by itself.
 6. **Start driving**: open Car Dash on your car's screen (Android Auto), or tap ☰ → **Start LIVE** on the phone.
 
 **Just want to look around first?** ☰ → **Settings → Demo → Try a demo drive** plays a recorded drive, so you can try every screen without a car.

@@ -361,7 +361,9 @@ class MainActivity : ComponentActivity() {
                     engine = size?.let { if (it > 20) it / 1000 else it },   // cc -> litres
                     redline = redline.text.toString().toIntOrNull() ?: 4000,
                 )
-                toast("Set up: $key. Drive through every gear, then GEARS.")
+                // Straight on to reading it (2026-11-06: the owner didn't know LIVE had to be started).
+                toast("Set up: $key. Reading it now…")
+                connect()
             }
             .setNegativeButton("Cancel") { _, _ -> Dash.clearProbe() }
             .show()

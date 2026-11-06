@@ -33,7 +33,7 @@ import java.util.Locale
 import java.util.UUID
 
 private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-private const val ENGINE = "7E8"   // the engine computer's answers; it listens on 7E0
+private const val ENGINE = "7E8"   // where most cars' engine computer answers; it listens on 7E0
 private const val MAX_BATCH = 6    // the OBD standard allows up to 6 values per question
 private val CAN_11BIT = setOf("6", "8")   // the protocols assembleCan11 understands
 
@@ -127,6 +127,10 @@ object ObdSession {
         private val readings = HashMap<Int, Reading>()
         private var portVolts: Double? = null
         private var portAt: Long? = null
+        // The engine computer: answers on [engine], asked on [engineAsk] (see chooseEngine).
+        private var engine = ENGINE
+        private var engineAsk = "7E0"
+        private var gearboxSeen = true   // a gearbox computer (7E9) answered: it tells ignition on/off
 
         private fun log(line: String) = Dash.log(gen, line)
         private fun status(text: String) = Dash.update(gen) { it.copy(status = text) }
@@ -173,13 +177,13 @@ object ObdSession {
             }
             val protocolId = protocolId()
             if (protocolId !in CAN_11BIT) {
-                Dash.finished(gen, "Protocol $protocolId: the app only reads CAN 11-bit cars (6, 8) so far")
+                Dash.finished(gen, "This vehicle uses a connection type Car Dash can't read yet (protocol $protocolId; it reads CAN 11-bit, 6 and 8, so far)")
                 return true
             }
             val protocolName = elm.command("ATDP").firstOrNull() ?: "protocol $protocolId"
             // Only the engine computer is read: the Tiago's AMT (7E9) refuses direct requests, and
             // its 9 values just repeat the engine's (test drive 2026-10-26).
-            val pids = modules[ENGINE] ?: throw IOException("The engine computer (7E8) didn't answer")
+            val pids = chooseEngine(modules)
 
             // Which car is this (VIN), and its stored trouble codes (asked of every computer).
             status("Checking the car…")
@@ -193,7 +197,7 @@ object ObdSession {
             val codes = probe.troubleCodes()
             log("VIN ${vin ?: "not shared"} · trouble codes: $codes")
             Dash.connected(gen, protocolName, pids.toSet(), codes)
-            elm.command("ATSH7E0")   // from now on, ask the engine computer directly
+            elm.command("ATSH$engineAsk")   // from now on, ask the engine computer directly
 
             // 1. One normal round: first values on screen, and each value's size and timing.
             status("Reading all values once…")
@@ -293,7 +297,7 @@ object ObdSession {
             }
             val protocolId = protocolId()
             if (protocolId !in CAN_11BIT) {
-                Dash.finished(gen, "Protocol $protocolId: the app only reads CAN 11-bit cars (6, 8) so far")
+                Dash.finished(gen, "This vehicle uses a connection type Car Dash can't read yet (protocol $protocolId; it reads CAN 11-bit, 6 and 8, so far)")
                 return true
             }
             val protocolName = elm.command("ATDP").firstOrNull() ?: "protocol $protocolId"
@@ -316,17 +320,18 @@ object ObdSession {
             val fuel = probe.fuelType()
             val codes = probe.troubleCodes()
             log("VIN ${vin ?: "not shared"}${maker?.let { " · maker: $it" } ?: ""} · fuel ${fuel ?: "?"} · codes: $codes")
-            elm.command("ATSH7E0")
-            val engine = modules[ENGINE].orEmpty()
-            for (pid in engine) readSingle(pid)
+            val enginePids = chooseEngine(modules)
+            elm.command("ATSH$engineAsk")
+            for (pid in enginePids) readSingle(pid)
             val snapshot = JSONObject()
             for (r in readings.values.sortedBy { it.pid }) snapshot.put(r.name, r.text)
             report.put("vin", vin ?: JSONObject.NULL)
                 .put("maker", maker ?: JSONObject.NULL)
                 .put("fuel", fuel ?: JSONObject.NULL)
                 .put("protocol_id", protocolId)
+                .put("engine_address", engine)
                 .put("trouble_codes", codes)
-                .put("supported_commands", JSONArray(engine.map { "%02X %s".format(it, Pids.name(it)) }))
+                .put("supported_commands", JSONArray(enginePids.map { "%02X %s".format(it, Pids.name(it)) }))
                 .put("snapshot", snapshot)
                 .put("saved", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
 
@@ -342,18 +347,42 @@ object ObdSession {
             return true
         }
 
+        /**
+         * Which computer is the engine: 7E8 as in most cars; else (2026-11-06: the Hunter 350 bike
+         * gave no values) the one that has RPM, then the most values. Asked at its own address
+         * (answers 7E8-7EF listen on 7E0-7E7); any other address is asked through "everyone" (7DF).
+         * [modules] isn't empty. Returns the engine's values.
+         */
+        private fun chooseEngine(modules: Map<String, List<Int>>): List<Int> {
+            engine = if (ENGINE in modules) ENGINE else modules.entries
+                .sortedWith(compareByDescending<Map.Entry<String, List<Int>>> { 0x0C in it.value }.thenByDescending { it.value.size })
+                .first().key
+            val n = engine.toIntOrNull(16)
+            engineAsk = if (n != null && n in 0x7E8..0x7EF) "%03X".format(n - 8) else "7DF"
+            gearboxSeen = "7E9" in modules && engine != "7E9"
+            if (engine != ENGINE) log("Engine computer: $engine (asked on $engineAsk), not the usual 7E8")
+            return modules.getValue(engine)
+        }
+
         /** The protocol the adapter is using, e.g. "6" (ATDPN answers "A6" after auto-detection). */
         private fun protocolId(): String = elm.command("ATDPN").firstOrNull()?.trim()?.removePrefix("A") ?: "?"
 
         /**
          * IGNITION ON (engine off) vs. the engine computer's shutdown after key-off: the AMT (7E9)
-         * answers only while the ignition is really on (KEY TEST 2026-10-26).
+         * answers only while the ignition is really on (KEY TEST 2026-10-26). A vehicle without such
+         * a computer (bike, manual car): the engine answering counts as ignition on.
          */
         private fun ignitionCheck(): CarState {
             elm.command("ATSH7DF")   // ask everyone
             val who = assembleCan11(elm.command("0100", 3000)).keys
-            elm.command("ATSH7E0")   // back to the engine computer
-            return if ("7E9" in who) CarState.IGNITION_ON else CarState.IGNITION_OFF
+            elm.command("ATSH$engineAsk")   // back to the engine computer
+            if ("7E9" in who && engine != "7E9") gearboxSeen = true
+            return when {
+                "7E9" in who && engine != "7E9" -> CarState.IGNITION_ON
+                gearboxSeen -> CarState.IGNITION_OFF
+                engine in who -> CarState.IGNITION_ON
+                else -> CarState.IGNITION_OFF
+            }
         }
 
         /**
@@ -455,7 +484,8 @@ object ObdSession {
 
         /** Sends a request, adding the answer-count digit if the adapter supports it. */
         private fun ask(request: String, count: Int): List<String> {
-            if (countSuffix && count in 1..15) {
+            // Through "everyone" (7DF) other computers may answer first: wait for all answers then.
+            if (countSuffix && count in 1..15 && engineAsk != "7DF") {
                 val answer = elm.command(request + "%X".format(count))
                 if (answer != listOf("?")) return answer
                 log("Adapter doesn't support the answer-count digit; reading without it")
@@ -467,7 +497,7 @@ object ObdSession {
         /** Reads one value the normal way and stores it. */
         private fun readSingle(pid: Int) {
             val answer = ask("01%02X".format(pid), 1)
-            val d = assembleCan11(answer)[ENGINE]
+            val d = assembleCan11(answer)[engine]
             when {
                 d != null && d.size >= 2 && d[0] == 0x41 && d[1] == pid -> {
                     val data = d.copyOfRange(2, d.size)
@@ -507,7 +537,7 @@ object ObdSession {
         private fun askBatch(group: Group): Map<Int, IntArray>? {
             val request = "01" + group.pids.joinToString("") { "%02X".format(it) }
             val answer = ask(request, group.frames)
-            val d = assembleCan11(answer)[ENGINE] ?: return emptyMap()
+            val d = assembleCan11(answer)[engine] ?: return emptyMap()
             if (d.isEmpty() || d[0] != 0x41) return emptyMap()   // silence or a refusal
             val values = LinkedHashMap<Int, IntArray>()
             var i = 1
@@ -522,7 +552,7 @@ object ObdSession {
                 values[pid] = d.copyOfRange(i + 1, i + 1 + size)
                 i += 1 + size
             }
-            if (group.frames == 0) group.frames = answer.count { it.replace(" ", "").startsWith(ENGINE) }
+            if (group.frames == 0) group.frames = answer.count { it.replace(" ", "").startsWith(engine) }
             return values
         }
 
