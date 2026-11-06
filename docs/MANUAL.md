@@ -262,6 +262,8 @@ Log every fill-up to get accurate **fuel left** and **range**:
 2. Tap **Fuel left** on the Dash, or **Log a fill-up** (Dash details or My car).
 3. Enter the **litres from the receipt**, and tick **"Filled to the automatic cut-off"** if you did.
 
+**Filling up while Car Dash is reading the car?** That's fine: when the tank gauge starts rising, Car Dash holds its fuel count at the level before the fill until you log the litres (it says "Fuel gauge rising: filling up?"), so the check is still accurate. For safety, switch the engine off at the pump.
+
 Log **every** refuel: full ones are the anchors, and partial ones (litres only, "full" unticked) keep the count right in between. A forgotten one is noticed from the tank gauge jumping, but less precisely, until the next full fill puts everything right.
 
 Why the first click, not the brim: the litres are exact either way, but the first click gives the **same "full" every time**, which is what the app learns from. Filling to the brim can also push fuel into the car's vapour filter.

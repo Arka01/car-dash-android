@@ -67,7 +67,7 @@ class FuelTracker(
     private val volumetricEfficiency: Double,
     private val stateFile: File?,        // null: don't load or save anything (demo, replay)
 ) {
-    private val state: JSONObject = load().also { seedRecent(it) }
+    private val state: JSONObject = load().also { repair(it, nominalTank); seedRecent(it) }
 
     /** The tank's real volume to the first click: learned from near-empty full fills, else the entered size. */
     private val tank: Double get() = state.num("tank_learned") ?: nominalTank
@@ -96,6 +96,12 @@ class FuelTracker(
     private var started = false
     private var consumptionNow: Double? = null
     private var engineOffAt = 0.0          // last time the engine was seen not running (gauge reads differently then)
+    // A refuel during a run (2026-11-05: filled with LIVE on, receipt entered 2 min after the gauge rose; the
+    // gauge had already pulled the estimate up, so the accuracy check, the tank size and a gauge-curve point
+    // were all learned wrong). While the gauge rises the gauge is ignored until the receipt or the next run.
+    private var lowPct: Double? = null     // lowest smoothed gauge % this run (since the last fill)
+    private var refuelling = false         // the gauge rose by RISE_PCT: a fill-up under way
+    private var risePct: Double? = null    // the gauge % just before it rose
 
     // ------------------------------------------------------------ public
 
@@ -126,6 +132,7 @@ class FuelTracker(
             if (!odoChecked) missedDrives(odo)
             lastOdo = odo
         }
+        watchForRefuel(now)
         if (pendingRefuel != null) applyRefuel(smoothedPct())   // a fill-up entered during the run
         val dt = lastTime?.let { now - it } ?: 0.0
         lastTime = now
@@ -196,7 +203,7 @@ class FuelTracker(
         state.put("saved", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
         state.put("litres", round3(l))
         state.put("variance", round(variance * 10000) / 10000)
-        state.put("float_pct_at_save", smoothedPct() ?: JSONObject.NULL)
+        state.put("float_pct_at_save", (if (refuelling) risePct else smoothedPct()) ?: JSONObject.NULL)
         state.put("total_km", round3((state.num("total_km") ?: 0.0) + km))
         state.put("total_litres", round3((state.num("total_litres") ?: 0.0) + used))
         recordRun(km, used)
@@ -245,6 +252,7 @@ class FuelTracker(
     private fun applyRefuel(pctNow: Double?) {
         val (added, full) = pendingRefuel ?: return
         pendingRefuel = null
+        val wasRefuelling = refuelling
         state.remove("gauge_window")
         val before = litres
         val beforeSigma = if (before != null) sqrt(variance) else null
@@ -254,9 +262,10 @@ class FuelTracker(
         if (full) {
             if (added != null && added > 0) {
                 learnFromFullFill(added)
-                val pctAtSave = state.num("float_pct_at_save")
-                // Tank was (full - added) litres just before this fill: a real point on the float curve.
-                if (before != null && pctAtSave != null) addCurvePoint(pctAtSave, capacity - added)
+                val pctAtSave = if (refuelling) risePct else state.num("float_pct_at_save")
+                // Tank was (full - added) litres just before this fill: a real point on the float curve
+                // (not from the plateau: there the gauge doesn't say how much is in the tank).
+                if (before != null && pctAtSave != null && pctAtSave < PLATEAU_PCT) addCurvePoint(pctAtSave, capacity - added)
                 learnTank(before, beforeSigma, added)
             }
             reset(tank, 0.5 * 0.5)   // brimmed tanks still vary a little
@@ -271,7 +280,34 @@ class FuelTracker(
             state.put("receipts_since_full", (state.num("receipts_since_full") ?: 0.0) + added)
             notes += String.format(Locale.US, "Fill-up of %.1f L recorded.", added)
         }
+        if (wasRefuelling) {   // the gauge may be trusted again, from the new level
+            refuelling = false
+            risePct = null
+            lowPct = null
+        }
     }
+
+    /**
+     * A refuel under way during a run: the one-minute gauge median [RISE_PCT] above this run's lowest.
+     * From then on the gauge is ignored (and the level before the rise kept) until the receipt is
+     * entered; with no receipt, the next run's start sees the higher gauge as a refuel, as before.
+     */
+    private fun watchForRefuel(now: Double) {
+        // Not in the first 2 minutes: the gauge may still be settling after the ignition came on.
+        if (refuelling || now - (firstSeen ?: now) < 2 * SMOOTH_SECONDS) return
+        val pct = smoothedPct() ?: return
+        val low = lowPct
+        if (low == null || pct < low) {
+            lowPct = pct
+            return
+        }
+        if (pct - low >= RISE_PCT) {
+            refuelling = true
+            risePct = low
+            notes += "Fuel gauge rising: filling up? Enter the litres in Fill-up for the best accuracy."
+        }
+    }
+
 
     /**
      * The real tank volume to the first click: fuel left just before a full fill + the litres added.
@@ -443,6 +479,7 @@ class FuelTracker(
 
     /** Update step: pull the estimate towards the smoothed float reading, weighted by trust. */
     private fun floatUpdate(now: Double) {
+        if (refuelling) return   // the gauge is rising with fuel the receipt hasn't told us about yet
         val pct = smoothedPct() ?: return
         val current = litres ?: return
         lastFloatUpdate = now
@@ -621,8 +658,41 @@ class FuelTracker(
     private fun round3(x: Double) = round(x * 1000) / 1000
 
     companion object {
+        /**
+         * One-time repair of a state saved before the refuel fix (2026-11-06): a gauge-curve point on the
+         * plateau (≥ [PLATEAU_PCT]) can only come from a fill entered after the gauge had risen, and then
+         * that fill's accuracy check and learned tank size are wrong too: removed, not guessed.
+         */
+        fun repair(s: JSONObject, nominalTank: Double?) {
+            if (s.optInt("repaired", 0) >= 1) return
+            val curve = s.optJSONArray("float_curve")
+            if (curve != null) {
+                val kept = JSONArray()
+                var bad = false
+                for (i in 0 until curve.length()) {
+                    val point = curve.optJSONArray(i) ?: continue
+                    if (point.optDouble(0) >= PLATEAU_PCT) bad = true else kept.put(point)
+                }
+                if (bad) {
+                    s.put("float_curve", kept)
+                    s.remove("tank_learned")
+                    s.remove("tank_samples")
+                    s.optJSONArray("fills")?.let { fills ->
+                        if (fills.length() > 0) fills.optJSONObject(fills.length() - 1)?.let { f ->
+                            f.remove("error")
+                            f.put("note", "app_before was read after the gauge had already risen (fill during a drive): no accuracy check")
+                        }
+                    }
+                    val l = s.optDouble("litres", Double.NaN)
+                    if (nominalTank != null && !l.isNaN() && l > nominalTank) s.put("litres", nominalTank)
+                }
+            }
+            s.put("repaired", 1)
+        }
+
         /** For My car: what has been learned so far, from the saved state (null file: nothing yet). */
         fun learning(state: JSONObject?, engineSize: Double?): FuelLearning {
+            state?.let { repair(it, null) }
             val s = state ?: JSONObject()
             val fills = s.optJSONArray("fills")
             val list = (0 until (fills?.length() ?: 0)).mapNotNull { fills!!.optJSONObject(it) }
@@ -671,6 +741,7 @@ class FuelTracker(
         private val RATE_VS_AIR = 0.5..2.0         // engine's fuel rate / air-intake estimate
         private const val RATE_SAMPLES = 300       // readings before the fuel-rate check decides
         private const val GAUGE_CHECK_PCT = 10.0   // gauge drop (%) per gauge check
+        private const val RISE_PCT = 15.0          // gauge rise (%) within a run that means a refuel under way
         private const val MAX_MISSED_SHARE = 0.3   // most of a gauge check's litres must be counted, not estimated
         private const val GAUGE_OFF_NOISE = 4.0    // a gauge that disagrees: its variance x this (sigma x2)
 
