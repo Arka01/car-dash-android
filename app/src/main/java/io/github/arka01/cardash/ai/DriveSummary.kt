@@ -152,8 +152,10 @@ object DriveSummary {
             val range = lowRange(fuel)
             if (range != null) append(fuelText(fuel)).append('\n')
             append(if (range != null) "Write exactly four parts:\n" else "Write exactly three parts:\n")
-            append("WITTY: one short, light-hearted, friendly sentence about the kind of drive this was (${report.driveType}), " +
-                "for example about enjoying a highway run or surviving heavy traffic. Never mock the driver. No numbers.\n")
+            // The kind of drive in plain words, not just a bracketed label (2026-11-07: for 'standing still' the
+            // small model followed the old highway/traffic examples and wrote "a slow and steady morning cruise").
+            append("WITTY: one short, light-hearted, friendly sentence that fits this kind of drive: ${driveMeaning(report.driveType)} " +
+                "Be playful and creative, in your own words. Never mock the driver. No numbers.\n")
             if (range != null) {
                 append(String.format(Locale.US, "REFUEL: one short, friendly sentence in your own words telling the driver the " +
                     "fuel tank is getting low, with about %.0f kilometres left, and to fill up with ${car.fuel} soon. This is " +
@@ -230,6 +232,18 @@ object DriveSummary {
         in 17..21 -> "evening"
         else -> "night"
     }
+
+    /** The kind of drive spelled out for the WITTY line, so the model can't turn "standing still" into a cruise. */
+    private fun driveMeaning(type: String): String = when {
+        type.startsWith("standing still") -> "the car did NOT move at all, the engine only idled while parked " +
+            "(for example warming up or waiting). Joke about the idling, for example a car that got ready for an " +
+            "adventure and stayed put. Do not call it a drive, ride, trip or cruise."
+        type.startsWith("traffic jam") -> "a traffic jam: crawling at walking pace with lots of waiting, " +
+            "for example the patience it took. Do not call it a cruise."
+        type.startsWith("highway") -> "a highway run: long stretches at highway speed, for example enjoying the open road."
+        type.startsWith("city") -> "a city drive: town streets, stop and go, for example signals, turns and busy roads."
+        else -> "a mixed drive: a bit of town and a bit of open road."
+    } + if (type.endsWith("spirited")) " The driver also revved the engine hard for a moment, so a sporty touch fits." else ""
 
     /** A ready-made witty line for the kind of drive, if the AI didn't write one. */
     private fun fallbackWitty(type: String): String = when {
