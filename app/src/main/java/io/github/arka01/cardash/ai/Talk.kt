@@ -17,6 +17,7 @@ import android.speech.SpeechRecognizer
 import androidx.annotation.RequiresApi
 import io.github.arka01.cardash.CarState
 import io.github.arka01.cardash.Dash
+import io.github.arka01.cardash.DriveReports
 import io.github.arka01.cardash.DriveService
 import io.github.arka01.cardash.Mode
 import io.github.arka01.cardash.Snapshot
@@ -31,6 +32,9 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Callable
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 import kotlin.math.sqrt
 
 /**
@@ -41,7 +45,8 @@ import kotlin.math.sqrt
  *    Nothing heard (e.g. a ghost tap on the Tiago's touch screen) = it stops quietly.
  * 2. The on-phone AI hears the recording itself (2026-11-06: Android's speech recognition heard "no
  *    words" in every recording handed to it, though the saved sound was clear speech) together with
- *    LIVE NOW (the current readings with the app's own verdicts, fuel, trip, warnings; ~400 tokens)
+ *    LIVE NOW (the current readings with the app's own verdicts, fuel, trip, warnings; ~400 tokens), the
+ *    drive's report so far with its timeline, earlier drives and the last engine starts (2026-11-07)
  *    and writes what it heard, then a 1-2 sentence answer. A model file without its audio part:
  *    Android's speech recognition, then the AI with the text, as before.
  * 4. The answer is spoken (car speakers with Android Auto).
@@ -51,9 +56,14 @@ import kotlin.math.sqrt
  */
 object Talk {
     private const val TOKENS = 120
+    // 2026-11-07: with only LIVE NOW, "what is the highest rpm" got the current rpm and "the dip while starting" the
+    // current voltage. Now the drive's own report (calculated by the app) comes with it, and which part to use is spelled out.
     private const val SYSTEM = "You are Car Dash, a calm co-driver answering the driver's spoken question. Use only " +
-        "the LIVE NOW data. Its levels (normal, watch, check) were decided by the app with this car's own rules: trust " +
-        "them and never judge a number yourself. Answer in one or two short spoken sentences: plain words, no lists, " +
+        "the data given: LIVE NOW (this moment), THIS DRIVE SO FAR or LAST DRIVE (the app's report of the whole drive, " +
+        "with a TIMELINE of what happened when), EARLIER DRIVES and LAST ENGINE STARTS. For highest, lowest, top, when, " +
+        "start dip or how the drive is going, use THIS DRIVE SO FAR, not LIVE NOW. For other days, use EARLIER DRIVES. " +
+        "The levels and verdicts (normal, watch, check, OK, WATCH, CHECK) were decided by the app with this car's own " +
+        "rules: trust them and never judge a number yourself. Answer in one or two short spoken sentences: plain words, no lists, " +
         "no symbols, rounded numbers. If the data doesn't answer the question, say so briefly. RPM is how fast the " +
         "engine turns, not the car's speed. Never ask the driver to look at the phone. Copy every number exactly as " +
         "written in the data, with its unit; never change, join or invent digits; if unsure of a number, leave it out."
@@ -91,6 +101,9 @@ object Talk {
         }
         say("Listening…")
         LocalLlm.preload(app, audio = true)   // loads the model while the driver speaks (~10 s the first time)
+        // The drive's report and history are worked out while the driver speaks, so they add no waiting.
+        val prepared = FutureTask(Callable { background() })
+        Thread(prepared).start()
         Thread {
             val pressed = System.currentTimeMillis()
             // While LIVE, the drive service also declares the microphone, so Android lets Car Dash hear
@@ -117,13 +130,14 @@ object Talk {
             note(app, String.format(Locale.US, "volume boost x%.1f (loudest sample %d → %d)", loud.second, loud.third, peak(loud.first)))
             saveLast(app, loud.first)
             say("Thinking…")
-            askHeard(app, wav(loud.first), pressed, mic, show) { recognizeAndAsk(app, loud.first, pressed, mic, show) }
+            val extra = runCatching { prepared.get(BACKGROUND_WAIT_S, TimeUnit.SECONDS) }.getOrDefault("")
+            askHeard(app, wav(loud.first), extra, pressed, mic, show) { recognizeAndAsk(app, loud.first, extra, pressed, mic, show) }
         }.start()
         return null
     }
 
     /** The old way (a model file that can't hear): Android's speech recognition, then the AI with the text. */
-    private fun recognizeAndAsk(app: Context, sound: ByteArray, pressed: Long, mic: Mic, show: (String) -> Unit) {
+    private fun recognizeAndAsk(app: Context, sound: ByteArray, extra: String, pressed: Long, mic: Mic, show: (String) -> Unit) {
         say(app, show, "Understanding…")
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) { finish(""); return }
         recognize(app, sound) { text, how ->
@@ -137,7 +151,7 @@ object Talk {
             note(app, String.format(Locale.US, "asked after %.1f s (%s; %s; reading %.1f/s): %s",
                 heard, mic.name, how, Dash.state.value.roundsPerSec, text))
             say(app, show, "Thinking…")
-            ask(app, text, show)
+            ask(app, text, extra, show)
         }
     }
 
@@ -150,9 +164,10 @@ object Talk {
      * The question as sound straight to the AI, with LIVE NOW: it writes "HEARD: …" and "ANSWER: …".
      * [cannotHear] runs if the model fails with sound (e.g. its file has no audio part).
      */
-    private fun askHeard(app: Context, wav: ByteArray, pressed: Long, mic: Mic, show: (String) -> Unit, cannotHear: () -> Unit) {
+    private fun askHeard(app: Context, wav: ByteArray, extra: String, pressed: Long, mic: Mic, show: (String) -> Unit, cannotHear: () -> Unit) {
         val asked = System.currentTimeMillis()
-        val prompt = live(Dash.state.value) + "\n" + HEARD
+        val prompt = extra + live(Dash.state.value) + "\n" + HEARD
+        saveText(app, "talk_last_prompt.txt", "SYSTEM:\n$SYSTEM\n\nPROMPT (with the question as sound):\n$prompt\n")
         val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = TOKENS + 40, allowLive = true,
             shown = "(spoken question)", greedy = true, audio = wav) { answer ->
             if (answer == null) {
@@ -176,10 +191,11 @@ object Talk {
         }
     }
 
-    /** The question to the AI with LIVE NOW; the answer is spoken and logged. */
-    private fun ask(app: Context, question: String, show: (String) -> Unit) {
+    /** The question to the AI with the drive's context and LIVE NOW; the answer is spoken and logged. */
+    private fun ask(app: Context, question: String, extra: String, show: (String) -> Unit) {
         val asked = System.currentTimeMillis()
-        val prompt = live(Dash.state.value) + "\nQUESTION: " + question
+        val prompt = extra + live(Dash.state.value) + "\nQUESTION: " + question
+        saveText(app, "talk_last_prompt.txt", "SYSTEM:\n$SYSTEM\n\nPROMPT:\n$prompt\n")
         val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = TOKENS, allowLive = true, shown = question,
             greedy = true) { answer -> speak(app, question, answer, prompt, asked) }
         if (why != null) {
@@ -196,8 +212,8 @@ object Talk {
         // Numbers not in LIVE NOW: those sentences aren't spoken (no time for a second try while driving).
         val bad = NumberCheck.bad(text, SYSTEM + "\n" + source)
         val spoken = if (bad.isEmpty()) text else NumberCheck.withoutBad(text, bad)
-        note(app, String.format(Locale.US, "answered in %.1f s (%s; reading %.1f/s): %s%s",
-            (System.currentTimeMillis() - asked) / 1000.0, LocalLlm.state.value.stats, Dash.state.value.roundsPerSec,
+        note(app, String.format(Locale.US, "answered in %.1f s (%s; prompt %d chars; reading %.1f/s): %s%s",
+            (System.currentTimeMillis() - asked) / 1000.0, LocalLlm.state.value.stats, source.length, Dash.state.value.roundsPerSec,
             text.ifEmpty { "(no answer)" }, if (bad.isEmpty()) "" else " | not in the data, not spoken: ${bad.joinToString(", ")}"))
         val say = when {
             text.isEmpty() -> "Sorry, I couldn't answer that."
@@ -387,11 +403,52 @@ object Talk {
         attempt(0)
     }
 
+    // ------------------------------------------------------------ the drive and earlier drives
+
+    /**
+     * Talk's context besides LIVE NOW. The AI hears the question itself (sound), so the app can't read
+     * it first and pick by question: it picks by situation. Recording a drive = EARLIER DRIVES + THIS
+     * DRIVE SO FAR (the live report, DriveReports.live); not = EARLIER DRIVES + LAST DRIVE (its final
+     * report). EARLIER DRIVES first and the drive last, nearest the question. "" if there's no car.
+     */
+    private fun background(): String {
+        return runCatching { backgroundText() }.getOrDefault("")
+    }
+
+    private fun backgroundText(): String {
+        val car = Dash.state.value.car ?: return ""
+        val recording = DriveReports.recordingNow()
+        val drive = if (recording != null) DriveReports.live() else DriveReports.newest(car, null)
+        val history = DriveReports.history(car, drive?.drive ?: recording)
+        val driveText = buildString {
+            if (drive == null) return@buildString
+            if (recording != null) {
+                append("THIS DRIVE SO FAR (the app's report of the whole drive until now; its findings are only the WATCH / CHECK lines under VERDICT)\n")
+            } else {
+                append("LAST DRIVE (finished; the app's report; its findings are only the WATCH / CHECK lines under VERDICT)\n")
+            }
+            append(drive.text(withData = false, withTimeline = true))
+            if (recording != null && drive.timeline.none { "engine started" in it }) {
+                append("Start dip of this drive: none, the engine was already running when it began. The last engine start " +
+                    "before it is the newest one in LAST ENGINE STARTS.\n")
+            }
+        }
+        // Too long for a quick answer: the history goes first (the drive matters most).
+        val both = history + "\n" + driveText
+        return (if (both.length > MAX_CONTEXT_CHARS) driveText else both) + "\n"
+    }
+
+    /** A text file in the car's folder (replaced each time), e.g. the last Talk's prompt for checking. */
+    private fun saveText(context: Context, name: String, text: String) {
+        val file: File = Dash.state.value.car?.file(name) ?: File(context.filesDir, name)
+        runCatching { file.writeText(text) }
+    }
+
     // ------------------------------------------------------------ LIVE NOW
 
     /** The car right now, with the app's own levels, for the AI (~400 tokens). */
     fun live(s: Snapshot): String = buildString {
-        append("LIVE NOW (").append(TimeFormat.clock(System.currentTimeMillis())).append(")\n")
+        append("LIVE NOW (today is ").append(TimeFormat.forAi(System.currentTimeMillis())).append(")\n")
         if (s.mode != Mode.LIVE) {
             append("Car Dash is not reading the car right now")
             if (s.derived != null) append("; these are the last readings")
@@ -525,4 +582,6 @@ object Talk {
     private const val END_SILENCE_MS = 1_200      // quiet this long after speaking = done
     private const val MAX_MS = 12_000
     private const val RECOGNIZE_TIMEOUT_MS = 15_000L
+    private const val BACKGROUND_WAIT_S = 3L         // the drive's report should be ready long before
+    private const val MAX_CONTEXT_CHARS = 4_500      // drive + history; above: the drive alone
 }

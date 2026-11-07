@@ -143,14 +143,16 @@ object DriveReports {
      * (Dash.Run.buffer), calculated exactly like the final report. Null if LIVE isn't recording or
      * there are too few rows yet. Takes ~0.1-0.3 s on a long drive: call it off the main thread.
      */
-    fun live(): DriveReport? = runCatching {
+    fun live(): DriveReport? {
         val run = Dash.run ?: return null
         if (!run.live || Dash.state.value.mode != Mode.LIVE) return null
         val csv = run.recorder?.csv ?: return null
-        val data = run.buffer?.snapshot() ?: return null
-        val average = average(earlier(run.car, csv.name))
-        DriveReport.calculate(data, csv.name, run.car, Dash.state.value.troubleCodes, average)
-    }.getOrNull()
+        val buffer = run.buffer ?: return null
+        return runCatching {
+            val average = average(earlier(run.car, csv.name))
+            DriveReport.calculate(buffer.snapshot(), csv.name, run.car, Dash.state.value.troubleCodes, average)
+        }.getOrNull()
+    }
 
     /** The CSV name of the drive LIVE is recording now, or null. */
     fun recordingNow(): String? = Dash.run?.takeIf { it.live && Dash.state.value.mode == Mode.LIVE }?.recorder?.csv?.name

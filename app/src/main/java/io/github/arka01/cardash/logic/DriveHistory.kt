@@ -57,14 +57,18 @@ object DriveHistory {
     }
 
     /** The engine starts saved in a car's battery_state.json (oldest first); empty if none. */
-    fun starts(batteryState: File?): List<Start> = runCatching {
+    fun starts(batteryState: File?): List<Start> {
         val file = batteryState?.takeIf { it.exists() } ?: return emptyList()
+        return runCatching { readStarts(file) }.getOrDefault(emptyList())
+    }
+
+    private fun readStarts(file: File): List<Start> {
         val cranks = JSONObject(file.readText()).optJSONArray("cranks") ?: return emptyList()
         val parse = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-        (0 until cranks.length()).mapNotNull { i ->
+        return (0 until cranks.length()).mapNotNull { i ->
             val c = cranks.getJSONObject(i)
             val at = runCatching { parse.parse(c.getString("when"))?.time }.getOrNull() ?: return@mapNotNull null
             Start(at, c.getDouble("min_volts"), c.optInt("samples"))
         }
-    }.getOrDefault(emptyList())
+    }
 }

@@ -111,7 +111,8 @@ object DriveSummary {
             append("BACKGROUND, NOT FINDINGS: CAR NOTES\n").append(notes(car)).append("\n\n")
             append("BACKGROUND, NOT FINDINGS: EARLIER DRIVES\n").append(history(earlier)).append("\n\n")
             append(fuelText(fuel)).append("\n")
-            append("THE DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text()).append("\n")
+            // With its timeline (2026-11-07): "when was the highest rpm", "when did I stop" can be answered.
+            append("THE DRIVE (its findings are only the WATCH / CHECK lines under VERDICT)\n").append(report.text(withTimeline = true)).append("\n")
             append("QUESTION: ").append(question)
         }
         val why = LocalLlm.ask(context, prompt, system = SYSTEM_QUESTION, shown = question, greedy = true)
