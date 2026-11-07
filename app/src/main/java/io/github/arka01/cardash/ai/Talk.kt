@@ -168,20 +168,20 @@ object Talk {
         val asked = System.currentTimeMillis()
         val prompt = extra + live(Dash.state.value) + "\n" + HEARD
         saveText(app, "talk_last_prompt.txt", "SYSTEM:\n$SYSTEM\n\nPROMPT (with the question as sound):\n$prompt\n")
+        val first = FirstSentence(app, SYSTEM + "\n" + prompt, asked)
         val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = TOKENS + 40, allowLive = true,
-            shown = "(spoken question)", greedy = true, audio = wav) { answer ->
+            shown = "(spoken question)", greedy = true, audio = wav,
+            onText = { all -> first.offer(answerPart(all), heardPart(all)) }) { answer ->
             if (answer == null) {
                 note(app, "the AI couldn't take the sound (${LocalLlm.state.value.status}); trying speech recognition")
                 cannotHear()
                 return@ask
             }
-            val heard = Regex("""HEARD:\s*(.*)""", RegexOption.IGNORE_CASE).find(answer)?.groupValues?.get(1)
-                ?.substringBefore("ANSWER:")?.trim().orEmpty()
-            val reply = Regex("""ANSWER:\s*([\s\S]*)""", RegexOption.IGNORE_CASE).find(answer)?.groupValues?.get(1)
-                ?: answer.replace(Regex("""HEARD:.*""", RegexOption.IGNORE_CASE), "")
+            val heard = heardPart(answer)
+            val reply = answerPart(answer) ?: answer.replace(Regex("""HEARD:.*""", RegexOption.IGNORE_CASE), "")
             note(app, String.format(Locale.US, "heard by the AI after %.1f s (%s; reading %.1f/s): %s",
                 (System.currentTimeMillis() - pressed) / 1000.0, mic.name, Dash.state.value.roundsPerSec, heard.ifEmpty { "?" }))
-            speak(app, heard.ifEmpty { "(not clear)" }, reply, prompt + "\n" + heard, asked)
+            speak(app, heard.ifEmpty { "(not clear)" }, reply, prompt + "\n" + heard, asked, first)
         }
         if (why != null) {
             note(app, "not asked: $why")
@@ -196,8 +196,9 @@ object Talk {
         val asked = System.currentTimeMillis()
         val prompt = extra + live(Dash.state.value) + "\nQUESTION: " + question
         saveText(app, "talk_last_prompt.txt", "SYSTEM:\n$SYSTEM\n\nPROMPT:\n$prompt\n")
+        val first = FirstSentence(app, SYSTEM + "\n" + prompt, asked)
         val why = LocalLlm.ask(app, prompt, system = SYSTEM, maxTokens = TOKENS, allowLive = true, shown = question,
-            greedy = true) { answer -> speak(app, question, answer, prompt, asked) }
+            greedy = true, onText = { all -> first.offer(all) }) { answer -> speak(app, question, answer, prompt, asked, first) }
         if (why != null) {
             note(app, "not asked: $why")
             Speech.reply(app, "Sorry, the AI isn't ready.")
@@ -206,21 +207,31 @@ object Talk {
         }
     }
 
-    /** Speaks the AI's [answer] (null = it failed) and logs it; [source] = what its numbers may come from. */
-    private fun speak(app: Context, question: String, answer: String?, source: String, asked: Long) {
+    /**
+     * Speaks the AI's [answer] (null = it failed) and logs it; [source] = what its numbers may come from.
+     * [first]: its first sentence may already have been spoken while the rest was written.
+     */
+    private fun speak(app: Context, question: String, answer: String?, source: String, asked: Long, first: FirstSentence) {
         val text = answer?.let { DriveSummary.plain(it).replace(Regex("\\s+"), " ").trim() }.orEmpty()
         // Numbers not in LIVE NOW: those sentences aren't spoken (no time for a second try while driving).
         val bad = NumberCheck.bad(text, SYSTEM + "\n" + source)
         val spoken = if (bad.isEmpty()) text else NumberCheck.withoutBad(text, bad)
-        note(app, String.format(Locale.US, "answered in %.1f s (%s; prompt %d chars; reading %.1f/s): %s%s",
-            (System.currentTimeMillis() - asked) / 1000.0, LocalLlm.state.value.stats, source.length, Dash.state.value.roundsPerSec,
+        note(app, String.format(Locale.US, "answered in %.1f s (%s; prompt %d chars;%s reading %.1f/s): %s%s",
+            (System.currentTimeMillis() - asked) / 1000.0, LocalLlm.state.value.stats, source.length,
+            if (first.spoken.isEmpty()) "" else String.format(Locale.US, " first sentence spoken after %.1f s;", first.after),
+            Dash.state.value.roundsPerSec,
             text.ifEmpty { "(no answer)" }, if (bad.isEmpty()) "" else " | not in the data, not spoken: ${bad.joinToString(", ")}"))
         val say = when {
             text.isEmpty() -> "Sorry, I couldn't answer that."
             spoken.isEmpty() -> "I'm not sure about that one. Ask me again when you're parked."
             else -> spoken
         }
-        Speech.reply(app, say)
+        val already = first.spoken
+        when {
+            already.isEmpty() -> Speech.reply(app, say)
+            say.startsWith(already) -> say.removePrefix(already).trim().takeIf { it.isNotEmpty() }?.let { Speech.reply(app, it) }
+            else -> Speech.reply(app, say)   // shouldn't happen: the first sentence passed the same check
+        }
         lastTalk.value = "You: $question\nCar Dash: $say"
         finish("")
     }
@@ -401,6 +412,42 @@ object Talk {
             }
         }
         attempt(0)
+    }
+
+    /** What the AI wrote after "HEARD:" (Talk with sound), or "". */
+    private fun heardPart(text: String): String = Regex("""HEARD:\s*(.*)""", RegexOption.IGNORE_CASE).find(text)
+        ?.groupValues?.get(1)?.substringBefore("ANSWER:")?.trim().orEmpty()
+
+    /** What the AI wrote after "ANSWER:" (Talk with sound), or null if it hasn't got there (yet). */
+    private fun answerPart(text: String): String? =
+        Regex("""ANSWER:\s*([\s\S]*)""", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)
+
+    /**
+     * Speaks the answer's first sentence as soon as it's written (2026-11-07, less waiting); the rest
+     * follows when the answer is done. Only once a second sentence has begun, so the first is complete.
+     * A first sentence with a number that isn't in the data waits for the end, where it's left out.
+     */
+    private class FirstSentence(private val app: Context, private val source: String, private val asked: Long) {
+        @Volatile var spoken = ""
+            private set
+        @Volatile var after = 0.0   // seconds from asking to speaking it
+            private set
+        @Volatile private var decided = false
+
+        fun offer(answer: String?, heard: String = "") {
+            if (decided || answer == null) return
+            val clean = DriveSummary.plain(answer).replace(Regex("\\s+"), " ").trimStart()
+            val sentence = FIRST.find(clean)?.groupValues?.get(1)?.trim() ?: return
+            decided = true
+            if (NumberCheck.bad(sentence, source + "\n" + heard).isNotEmpty()) return
+            after = (System.currentTimeMillis() - asked) / 1000.0
+            spoken = sentence
+            Speech.reply(app, sentence)
+        }
+
+        private companion object {
+            val FIRST = Regex("""^(.+?[.!?])\s+\S""")   // a sentence end, then the next one has started
+        }
     }
 
     // ------------------------------------------------------------ the drive and earlier drives

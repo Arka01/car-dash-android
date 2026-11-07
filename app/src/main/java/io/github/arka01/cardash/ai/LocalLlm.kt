@@ -236,6 +236,7 @@ object LocalLlm {
         shown: String? = null,   // what the AI screen shows as the question (default: [question])
         greedy: Boolean = false, // facts (questions, Talk): always the likeliest word, so numbers are copied exactly
         audio: ByteArray? = null, // Talk: the driver's question as WAV sound, given to the model with [question]
+        onText: ((String) -> Unit)? = null, // Talk: the answer so far, after every piece (to speak its first sentence early)
         onDone: ((String?) -> Unit)? = null,
     ): String? {
         val app = context.applicationContext
@@ -286,6 +287,7 @@ object LocalLlm {
                                     val piece = message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
                                     val text = synchronized(answer) { answer.append(piece).toString() }
                                     store.update { it.copy(answer = text, status = "answering…") }
+                                    onText?.let { runCatching { it(text) } }
                                 }
 
                                 override fun onDone() {
