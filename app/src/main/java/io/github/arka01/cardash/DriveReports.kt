@@ -4,6 +4,7 @@ import android.content.Context
 import io.github.arka01.cardash.ai.DriveSummary
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.cars.Cars
+import io.github.arka01.cardash.logic.DriveHistory
 import io.github.arka01.cardash.logic.DriveReport
 import io.github.arka01.cardash.logic.FuelReport
 import io.github.arka01.cardash.logic.FuelTracker
@@ -137,15 +138,59 @@ object DriveReports {
         return Cars.active(app) to reports
     }
 
+    /**
+     * The report of the LIVE drive so far (Talk, 2026-11-07): the drive's columns kept in memory
+     * (Dash.Run.buffer), calculated exactly like the final report. Null if LIVE isn't recording or
+     * there are too few rows yet. Takes ~0.1-0.3 s on a long drive: call it off the main thread.
+     */
+    fun live(): DriveReport? = runCatching {
+        val run = Dash.run ?: return null
+        if (!run.live || Dash.state.value.mode != Mode.LIVE) return null
+        val csv = run.recorder?.csv ?: return null
+        val data = run.buffer?.snapshot() ?: return null
+        val average = average(earlier(run.car, csv.name))
+        DriveReport.calculate(data, csv.name, run.car, Dash.state.value.troubleCodes, average)
+    }.getOrNull()
+
+    /** The CSV name of the drive LIVE is recording now, or null. */
+    fun recordingNow(): String? = Dash.run?.takeIf { it.live && Dash.state.value.mode == Mode.LIVE }?.recorder?.csv?.name
+
+    /** [car]'s newest drive with a saved report, leaving out [except] (the drive going on now). */
+    fun newest(car: CarProfile, except: String?): DriveReport? =
+        drivesOf(car).asSequence().filter { it.name != except }.mapNotNull { load(it) }.firstOrNull()
+
+    /**
+     * [car]'s history for the AI (logic/DriveHistory): the drives before [before] (a CSV name; null =
+     * all), the last 7 days' totals and the last engine starts' dips.
+     */
+    fun history(car: CarProfile, before: String?): String {
+        val reports = earlier(car, before)
+        return DriveHistory.text(reports, DriveHistory.starts(car.file("battery_state.json")), System.currentTimeMillis())
+    }
+
+    /** Reports of [car]'s drives older than [before] (all with null), newest first. */
+    private fun earlier(car: CarProfile, before: String?): List<DriveReport> =
+        drivesOf(car).filter { before == null || it.name < before }.mapNotNull { load(it) }
+
+    /** [car]'s drive recordings, newest first. */
+    private fun drivesOf(car: CarProfile): List<File> = car.recordings
+        ?.listFiles { f -> f.name.startsWith("drive_") && f.name.endsWith(".csv") }
+        .orEmpty()
+        .sortedByDescending { it.name }
+
+    /** This car's average consumption over earlier drives of 2 km or more (3 needed), as in each report. */
+    private fun average(earlier: List<DriveReport>): Double? {
+        val usable = earlier.filter { it.km >= 2 && it.litres != null }
+        return if (usable.size >= 3) usable.sumOf { it.litres!! } / usable.sumOf { it.km } * 100 else null
+    }
+
     private fun load(csv: File): DriveReport? = runCatching {
         reportFile(csv).takeIf { it.exists() }?.let { DriveReport.fromJson(JSONObject(it.readText())) }
     }.getOrNull()
 
     /** Calculates and saves one report; null if the recording has too little data. */
     private fun calculate(csv: File, car: CarProfile, earlier: List<DriveReport>): DriveReport? = runCatching {
-        // This car's average consumption over earlier drives of 2 km or more (3 needed).
-        val usable = earlier.filter { it.km >= 2 && it.litres != null }
-        val average = if (usable.size >= 3) usable.sumOf { it.litres!! } / usable.sumOf { it.km } * 100 else null
+        val average = average(earlier)
         val profile = runCatching { JSONObject(profileFile(csv).readText()) }.getOrNull()
         DriveReport.calculate(csv, car, profile, average)?.also { reportFile(csv).writeText(it.toJson().toString(2)) }
     }.getOrNull()

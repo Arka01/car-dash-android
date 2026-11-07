@@ -7,6 +7,7 @@ import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.cars.Cars
 import io.github.arka01.cardash.demo.DemoPlayer
 import io.github.arka01.cardash.logic.Derived
+import io.github.arka01.cardash.logic.DriveBuffer
 import io.github.arka01.cardash.logic.Pipeline
 import io.github.arka01.cardash.logic.Values
 import io.github.arka01.cardash.obd.ObdSession
@@ -102,6 +103,8 @@ object Dash {
     class Run(val context: Context, val car: CarProfile, val live: Boolean) {
         val pipeline = Pipeline(car, live, System.currentTimeMillis() / 1000.0)
         val recorder: DriveRecorder? = if (live) car.recordings?.let { DriveRecorder(it, car.key) } else null
+        /** The recorded drive's report columns in memory: its report so far, for Talk (DriveReports.live). */
+        val buffer: DriveBuffer? = recorder?.let { DriveBuffer() }
         @Volatile var carConfirmed = !live
         var engineRan = false   // since the last engine-off summary
         var offSince = 0L       // when the ignition went off (0 = it isn't off)
@@ -215,6 +218,10 @@ object Dash {
         val (derived, sentence) = r.pipeline.process(input, System.currentTimeMillis() / 1000.0)
         val recorder = r.recorder?.takeIf { r.carConfirmed }
         recorder?.write(readings, input, derived.values, carState)
+        // The same values as the recording's columns (DriveRecorder: raw readings, calculated Torque / Power).
+        if (recorder != null) r.buffer?.add(System.currentTimeMillis()) { name ->
+            if (name in Values.PIDS || name == Values.PORT) input[name] else derived.values[name]
+        }
         if (sentence != null) Speech.say(r.context, sentence)
         if (recorder != null) engineOffCheck(r, recorder, carState)
         val rows = recorder?.rows ?: 0

@@ -31,6 +31,7 @@ class DriveReport(
     val verdicts: List<ReportLine>,   // the WATCH / CHECK findings first, then key OKs
     val sections: List<ReportSection>,
     val driveType: String = "mixed",  // standing still / traffic jam / city / highway / mixed, + ", spirited"
+    val timeline: List<String> = emptyList(),   // "6:18 PM engine started, start dip 10.0 V (OK)", oldest first
 ) {
     /** The worst verdict, for the drive list. */
     val worst: Verdict
@@ -50,6 +51,7 @@ class DriveReport(
         .put("l_per_100km", lPer100 ?: JSONObject.NULL)
         .put("drive_type", driveType)
         .put("verdicts", JSONArray(verdicts.map { it.toJson() }))
+        .put("timeline", JSONArray(timeline))
         .put("sections", JSONArray(sections.map { s ->
             JSONObject().put("title", s.title).put("lines", JSONArray(s.lines.map { it.toJson() }))
         }))
@@ -60,8 +62,10 @@ class DriveReport(
      * took D4's numbers for D5 (untagged headings, D5's empty VERDICT right below D4's findings).
      * A VERDICT without WATCH / CHECK says so in words, so the model doesn't look elsewhere.
      * [withData]: the DATA section (recording quality), left out for questions about several drives.
+     * [withTimeline]: what happened when (questions, Talk); not for the spoken summary, where the small
+     * model would present facts like "highest rpm" as findings.
      */
-    fun text(tag: String = "", mark: String = "", withData: Boolean = true): String = buildString {
+    fun text(tag: String = "", mark: String = "", withData: Boolean = true, withTimeline: Boolean = false): String = buildString {
         val p = if (tag.isEmpty()) "" else "$tag "
         append(p)
         if (mark.isNotEmpty()) append('(').append(mark).append(") ")
@@ -77,12 +81,17 @@ class DriveReport(
             append(p).append(s.title).append('\n')
             s.lines.forEach { append("  ${it.label}: ${it.value}${if (it.verdict != Verdict.INFO) " (${it.verdict})" else ""}\n") }
         }
+        if (withTimeline && timeline.isNotEmpty()) {
+            append(p).append("TIMELINE (what happened when; facts, not findings)\n")
+            timeline.forEach { append("  ").append(it).append('\n') }
+        }
     }
 
     companion object {
         /** Raise when the calculation changes: older saved reports are then calculated again. */
-        const val VERSION = 6   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK; 4: drive type;
-                                // 5: "engine revs over …" (the AI read "rpm limit" as a speed limit); 6: 12-hour times
+        const val VERSION = 7   // 2: gaps only while the engine runs; 3: RPM blips under 1 s are OK; 4: drive type;
+                                // 5: "engine revs over …" (the AI read "rpm limit" as a speed limit); 6: 12-hour times;
+                                // 7: timeline + lowest steady rpm (Talk, 2026-11-07)
 
         fun fromJson(j: JSONObject): DriveReport? {
             if (j.optInt("version") != VERSION) return null
@@ -99,6 +108,7 @@ class DriveReport(
                 litres = if (j.isNull("litres")) null else j.getDouble("litres"),
                 lPer100 = if (j.isNull("l_per_100km")) null else j.getDouble("l_per_100km"),
                 driveType = j.optString("drive_type", "mixed"),
+                timeline = j.optJSONArray("timeline")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
                 verdicts = lines(j.getJSONArray("verdicts")),
                 sections = (0 until sections.length()).map { i ->
                     val s = sections.getJSONObject(i)
@@ -122,16 +132,24 @@ class DriveReport(
          * earlier drives (null below 3 drives).
          */
         fun calculate(csv: File, car: CarProfile, profile: JSONObject?, averageLPer100: Double?): DriveReport? {
-            val rows = read(csv) ?: return null
-            if (rows.size < 10) return null
-            val clock = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
-            val t = rows.map { r -> r.time?.let { runCatching { clock.parse(it)?.time }.getOrNull() } ?: 0L }
+            val data = read(csv) ?: return null
+            return calculate(data, csv.name, car, profile?.optString("trouble_codes"), averageLPer100)
+        }
+
+        /**
+         * The report for [data]: a whole recording, or the drive going on now (LIVE's DriveBuffer: "this
+         * drive so far", 2026-11-07), calculated the same way. [drive] = the CSV file name, [codes] =
+         * the trouble codes read at connecting (null / empty = not known).
+         */
+        fun calculate(data: DriveData, drive: String, car: CarProfile, codes: String?, averageLPer100: Double?): DriveReport? {
+            val n = data.size
+            if (n < 10) return null
+            val t = data.times
             if (t.first() == 0L) return null
-            val n = rows.size
             val secs = DoubleArray(n) { (t[it] - t[0]) / 1000.0 }
             val dt = DoubleArray(n) { if (it == 0) 0.0 else (secs[it] - secs[it - 1]).coerceIn(0.0, GAP_S) }
             val duration = secs.last()
-            fun col(name: String) = DoubleArray(n) { rows[it].values[name] ?: Double.NaN }
+            fun col(name: String) = data.col(name)
             val speed = col("Speed")
             val rpm = col("RPM")
             val coolant = col("Coolant")
@@ -161,12 +179,21 @@ class DriveReport(
                 overRedline <= 5.0 -> Verdict.WATCH
                 else -> Verdict.CHECK
             }
+            // Lowest steady rpm: running for 3 s before and after (no start-up or spin-down), i.e. the idle.
+            val lastOff = DoubleArray(n)
+            var off = Double.NEGATIVE_INFINITY
+            for (i in 0 until n) { if (!running[i]) off = secs[i]; lastOff[i] = off }
+            val nextOff = DoubleArray(n)
+            off = Double.POSITIVE_INFINITY
+            for (i in n - 1 downTo 0) { if (!running[i]) off = secs[i]; nextOff[i] = off }
+            val lowest = (0 until n).filter { running[it] && secs[it] - lastOff[it] >= 3 && nextOff[it] - secs[it] >= 3 }.minOfOrNull { rpm[it] }
             val drive = listOf(
                 ReportLine("distance", String.format(Locale.US, "%.1f km", km)),
                 ReportLine("average", String.format(Locale.US, "%.0f km/h", if (duration > 0) km / (duration / 3600) else 0.0)),
                 ReportLine("top speed", speed.maxOk()?.let { String.format(Locale.US, "%.0f km/h", it) } ?: "--"),
                 ReportLine("idling", if (runningSecs > 0) String.format(Locale.US, "%.0f %%", idleSecs / runningSecs * 100) else "--"),
                 ReportLine("max rpm", rpm.maxOk()?.let { String.format(Locale.US, "%.0f", it) } ?: "--"),
+                ReportLine("lowest steady rpm (idle)", lowest?.let { String.format(Locale.US, "%.0f", it) } ?: "--"),
                 ReportLine("over ${car.redlineRpm} rpm", String.format(Locale.US, "%.1f s", overRedline), redlineVerdict),
             )
             if (redlineVerdict != Verdict.OK) finding(ReportLine("engine revs over your ${car.redlineRpm} rpm limit", String.format(Locale.US, "for %.0f s", overRedline), redlineVerdict))
@@ -251,6 +278,7 @@ class DriveReport(
                     if (v != Verdict.OK) finding(ReportLine("battery only ~${pct.toInt()} % charged", String.format(Locale.US, "(%.1f V at rest)", rest), v))
                 }
             }
+            val dips = HashMap<Int, String>()   // start row -> "10.0 V (OK)", for the timeline
             for ((k, s) in starts.withIndex()) {
                 val window = (0..s).filter { secs[s] - secs[it] <= 5 && !port[it].isNaN() }
                 val dip = window.minOfOrNull { port[it] } ?: continue
@@ -263,6 +291,7 @@ class DriveReport(
                 }
                 val label = if (starts.size > 1) "start ${k + 1} dip" else "start dip"
                 battery += ReportLine(label, String.format(Locale.US, "%.1f V (%d readings)", dip, dense), v)
+                dips[s] = String.format(Locale.US, "%.1f V (%s)", dip, if (v == Verdict.INFO) "too few readings to judge" else v.name)
                 if (k == 0) finding(when (v) {
                     Verdict.OK -> ReportLine("start dip", String.format(Locale.US, "%.1f V (good)", dip), v)
                     Verdict.INFO -> ReportLine("", "", Verdict.INFO)
@@ -327,7 +356,7 @@ class DriveReport(
                     below < 300 -> Verdict.WATCH
                     else -> Verdict.CHECK
                 }
-                val at = if (longest > 0) " (longest at ${rows[longestStart].time?.substring(11, 16)?.let(TimeFormat::from24)})" else ""
+                val at = if (longest > 0) " (longest at ${TimeFormat.clock(t[longestStart])})" else ""
                 battery += ReportLine("below 12 V running", String.format(Locale.US, "%.0f s%s", below, at), v)
                 if (v != Verdict.OK) finding(ReportLine("below 12 V while driving", String.format(Locale.US, "%.0f s total%s", below, at), v))
                 // Overcharge: above 15.0 V for 5 s (brief spikes while braking are normal)
@@ -386,11 +415,11 @@ class DriveReport(
                 engine += ReportLine("catalyst max", String.format(Locale.US, "%.0f °C", c), v)
                 if (v != Verdict.OK) finding(ReportLine("catalytic converter very hot", String.format(Locale.US, "%.0f °C", c), v))
             }
-            val codes = profile?.optString("trouble_codes")?.takeIf { it.isNotEmpty() }
-            if (codes != null) {
-                val v = if (codes.startsWith("none")) Verdict.OK else Verdict.CHECK
-                engine += ReportLine("trouble codes", codes, v)
-                if (v == Verdict.CHECK) finding(ReportLine("trouble codes stored", codes, v))
+            val troubleCodes = codes?.takeIf { it.isNotEmpty() }
+            if (troubleCodes != null) {
+                val v = if (troubleCodes.startsWith("none")) Verdict.OK else Verdict.CHECK
+                engine += ReportLine("trouble codes", troubleCodes, v)
+                if (v == Verdict.CHECK) finding(ReportLine("trouble codes stored", troubleCodes, v))
             }
             if (engine.isNotEmpty()) sections += ReportSection("ENGINE", engine)
 
@@ -416,19 +445,81 @@ class DriveReport(
                 movingAvg < 35 -> "city"
                 else -> "mixed"
             } + if (overRedline >= 1.0) ", spirited" else ""
-            return DriveReport(csv.name, t[0], duration / 60, km, litres, lPer100, all, sections, type)
+            val timeline = timeline(t, speed, rpm, coolant, volts, running, starts, dips)
+            return DriveReport(drive, t[0], duration / 60, km, litres, lPer100, all, sections, type, timeline)
         }
 
-        private class Row(val time: String?, val values: Map<String, Double>)
+        /**
+         * What happened when, oldest first (Talk and questions, 2026-11-07: asked "what was the highest rpm",
+         * the AI only had the current rpm). Engine starts with their dip, stops, highest rpm, top speed,
+         * longest idle, hottest coolant, lowest battery while running. Facts, no verdicts of their own.
+         */
+        private fun timeline(
+            t: LongArray, speed: DoubleArray, rpm: DoubleArray, coolant: DoubleArray, volts: DoubleArray,
+            running: BooleanArray, starts: List<Int>, dips: Map<Int, String>,
+        ): List<String> {
+            val n = t.size
+            val events = ArrayList<Pair<Long, String>>()
+            fun at(i: Int) = TimeFormat.clock(t[i])
+            fun secsBetween(a: Int, b: Int) = (t[b] - t[a]) / 1000.0
+            fun duration(s: Double) = if (s < 90) String.format(Locale.US, "%.0f s", s) else String.format(Locale.US, "%.0f min", s / 60)
 
-        private val WANTED = setOf(
-            "Speed", "RPM", "Coolant", "Oil", "Intake air", "Catalyst", "Long fuel trim", "Fuel rate",
-            "Battery", "Battery (port)", "Torque", "Power",
-        )
+            val firstRpm = (0 until n).firstOrNull { !rpm[it].isNaN() }
+            events += t[0] to "${at(0)} recording started" + when {
+                firstRpm == null -> ""
+                running[firstRpm] -> ", engine already running"
+                else -> ", engine off"
+            }
+            for (s in starts) events += t[s] to "${at(s)} engine started" + (dips[s]?.let { ", start dip $it" } ?: "")
+            // Stops: running, then below 100 rpm; how long it stayed off.
+            var wasRunning = false
+            for (i in 0 until n) {
+                if (rpm[i].isNaN()) continue
+                if (running[i]) wasRunning = true
+                else if (wasRunning && rpm[i] < 100) {
+                    wasRunning = false
+                    val next = starts.firstOrNull { it > i }
+                    events += t[i] to "${at(i)} engine switched off" +
+                        (next?.let { " for ${duration(secsBetween(i, it))}" } ?: "")
+                }
+            }
+            (0 until n).filter { running[it] }.maxByOrNull { rpm[it] }?.let { i ->
+                events += t[i] to String.format(Locale.US, "%s highest rpm %.0f%s", at(i), rpm[i],
+                    if (speed[i].isNaN()) "" else String.format(Locale.US, " at %.0f km/h", speed[i]))
+            }
+            (0 until n).filter { !speed[it].isNaN() }.maxByOrNull { speed[it] }?.takeIf { speed[it] > 0 }?.let { i ->
+                events += t[i] to String.format(Locale.US, "%s top speed %.0f km/h", at(i), speed[i])
+            }
+            // Longest wait with the engine idling (standing, engine running), if a minute or more.
+            var best = 0.0
+            var bestFrom = -1
+            var from = -1
+            for (i in 0 until n) {
+                val idle = running[i] && !speed[i].isNaN() && speed[i] < 0.5
+                if (idle && from < 0) from = i
+                if (!idle) from = -1
+                if (from >= 0 && secsBetween(from, i) > best) {
+                    best = secsBetween(from, i)
+                    bestFrom = from
+                }
+            }
+            if (best >= 60) events += t[bestFrom] to "${at(bestFrom)} longest wait with the engine idling: ${duration(best)}"
+            (0 until n).filter { !coolant[it].isNaN() }.maxByOrNull { coolant[it] }?.let { i ->
+                events += t[i] to String.format(Locale.US, "%s hottest coolant %.0f °C", at(i), coolant[i])
+            }
+            // Lowest battery while running, 30 s or more after a start (the start's own dip is above).
+            (0 until n).filter { i ->
+                running[i] && !volts[i].isNaN() && (starts.lastOrNull { it <= i }?.let { secsBetween(it, i) > 30 } ?: true)
+            }.minByOrNull { volts[it] }?.let { i ->
+                events += t[i] to String.format(Locale.US, "%s lowest battery while running %.1f V", at(i), volts[i])
+            }
+            return events.sortedBy { it.first }.map { it.second }
+        }
 
-        /** The columns the report needs, row by row. */
-        private fun read(csv: File): List<Row>? {
-            val out = ArrayList<Row>()
+        /** The columns the report needs, from a recording (a drive CSV). Null if it has no time column. */
+        fun read(csv: File): DriveData? {
+            val clock = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+            val buffer = DriveBuffer()
             csv.bufferedReader().useLines { lines ->
                 var index: Map<String, Int> = emptyMap()
                 var timeCol = -1
@@ -436,17 +527,16 @@ class DriveReport(
                     if (line.isBlank()) continue
                     val cells = Csv.split(line)
                     if (k == 0) {
-                        index = cells.withIndex().filter { it.value in WANTED }.associate { it.value to it.index }
+                        index = cells.withIndex().filter { it.value in DriveData.NAMES }.associate { it.value to it.index }
                         timeCol = cells.indexOf("time")
                         if (timeCol < 0) return null
                         continue
                     }
-                    val values = HashMap<String, Double>()
-                    for ((name, i) in index) cells.getOrNull(i)?.toDoubleOrNull()?.let { values[name] = it }
-                    out += Row(cells.getOrNull(timeCol), values)
+                    val time = cells.getOrNull(timeCol)?.let { runCatching { clock.parse(it)?.time }.getOrNull() } ?: 0L
+                    buffer.add(time) { name -> index[name]?.let { cells.getOrNull(it)?.toDoubleOrNull() } }
                 }
             }
-            return out
+            return buffer.snapshot()
         }
     }
 }
