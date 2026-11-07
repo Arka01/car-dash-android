@@ -445,7 +445,7 @@ class DriveReport(
                 movingAvg < 35 -> "city"
                 else -> "mixed"
             } + if (overRedline >= 1.0) ", spirited" else ""
-            val timeline = timeline(t, speed, rpm, coolant, volts, running, starts, dips)
+            val timeline = timelineOf(t, speed, rpm, coolant, volts, running, starts, dips)
             return DriveReport(drive, t[0], duration / 60, km, litres, lPer100, all, sections, type, timeline)
         }
 
@@ -454,7 +454,7 @@ class DriveReport(
          * the AI only had the current rpm). Engine starts with their dip, stops, highest rpm, top speed,
          * longest idle, hottest coolant, lowest battery while running. Facts, no verdicts of their own.
          */
-        private fun timeline(
+        private fun timelineOf(
             t: LongArray, speed: DoubleArray, rpm: DoubleArray, coolant: DoubleArray, volts: DoubleArray,
             running: BooleanArray, starts: List<Int>, dips: Map<Int, String>,
         ): List<String> {
