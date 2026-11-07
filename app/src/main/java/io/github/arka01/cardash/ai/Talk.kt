@@ -466,7 +466,7 @@ object Talk {
         val car = Dash.state.value.car ?: return ""
         val recording = DriveReports.recordingNow()
         val drive = if (recording != null) DriveReports.live() else DriveReports.newest(car, null)
-        val history = DriveReports.history(car, drive?.drive ?: recording)
+        val earlier = DriveReports.history(car, drive?.drive ?: recording)
         val driveText = buildString {
             if (drive == null) return@buildString
             if (recording != null) {
@@ -481,7 +481,7 @@ object Talk {
             }
         }
         // Too long for a quick answer: the history goes first (the drive matters most).
-        val both = history + "\n" + driveText
+        val both = earlier + "\n" + driveText
         return (if (both.length > MAX_CONTEXT_CHARS) driveText else both) + "\n"
     }
 

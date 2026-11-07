@@ -138,10 +138,10 @@ class DriveReport(
 
         /**
          * The report for [data]: a whole recording, or the drive going on now (LIVE's DriveBuffer: "this
-         * drive so far", 2026-11-07), calculated the same way. [drive] = the CSV file name, [codes] =
+         * drive so far", 2026-11-07), calculated the same way. [driveName] = the CSV file name, [codes] =
          * the trouble codes read at connecting (null / empty = not known).
          */
-        fun calculate(data: DriveData, drive: String, car: CarProfile, codes: String?, averageLPer100: Double?): DriveReport? {
+        fun calculate(data: DriveData, driveName: String, car: CarProfile, codes: String?, averageLPer100: Double?): DriveReport? {
             val n = data.size
             if (n < 10) return null
             val t = data.times
@@ -446,7 +446,7 @@ class DriveReport(
                 else -> "mixed"
             } + if (overRedline >= 1.0) ", spirited" else ""
             val timeline = timelineOf(t, speed, rpm, coolant, volts, running, starts, dips)
-            return DriveReport(drive, t[0], duration / 60, km, litres, lPer100, all, sections, type, timeline)
+            return DriveReport(driveName, t[0], duration / 60, km, litres, lPer100, all, sections, type, timeline)
         }
 
         /**

@@ -149,8 +149,8 @@ object DriveReports {
         val csv = run.recorder?.csv ?: return null
         val buffer = run.buffer ?: return null
         return runCatching {
-            val average = average(earlier(run.car, csv.name))
-            DriveReport.calculate(buffer.snapshot(), csv.name, run.car, Dash.state.value.troubleCodes, average)
+            val avg = average(earlier(run.car, csv.name))
+            DriveReport.calculate(buffer.snapshot(), csv.name, run.car, Dash.state.value.troubleCodes, avg)
         }.getOrNull()
     }
 
@@ -192,8 +192,8 @@ object DriveReports {
 
     /** Calculates and saves one report; null if the recording has too little data. */
     private fun calculate(csv: File, car: CarProfile, earlier: List<DriveReport>): DriveReport? = runCatching {
-        val average = average(earlier)
+        val avg = average(earlier)
         val profile = runCatching { JSONObject(profileFile(csv).readText()) }.getOrNull()
-        DriveReport.calculate(csv, car, profile, average)?.also { reportFile(csv).writeText(it.toJson().toString(2)) }
+        DriveReport.calculate(csv, car, profile, avg)?.also { reportFile(csv).writeText(it.toJson().toString(2)) }
     }.getOrNull()
 }
