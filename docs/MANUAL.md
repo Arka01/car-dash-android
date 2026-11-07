@@ -170,12 +170,12 @@ Car Dash asks the car for several values at once, which makes the important valu
 
 **Drives** lists your drives, newest first. Each card shows the date and time (e.g. **Wed 4 Nov 2026 · 9:10 AM**), duration, distance, kind of drive and consumption, plus the drive's overall verdict: **✓ OK**, **▲ watch** or **■ check**. Tap a drive to open its report:
 
-- **Share:** sends the drive as one ZIP file (recording, report, AI summary and the car's fuel data), for example by email. Unzip it on the computer; if a copy got damaged on the way, unzipping says so.
+- **Share:** sends the drive as one ZIP file (recording, report, AI summary, the car's fuel data and the last Talk question), for example by email. Unzip it on the computer; if a copy got damaged on the way, unzipping says so.
 - **Replay:** plays the drive again on the Dash.
 - **AI summary:** the short spoken text and a longer explanation. Tap **Write again** to have it rewritten.
 - **Ask about this drive:** see section 8.
 - **Verdict:** every finding marked **watch** or **check** first, then the good news.
-- **Sections:** Drive, Fuel, Warm-up (after a cold start), Battery, Engine, Data.
+- **Sections:** Drive, Fuel, Warm-up (after a cold start), Battery, Engine, Data. **Drive** includes the **lowest steady rpm**: your engine's idle speed, not counting the moments of starting and switching off.
 
 ### What the report checks
 | Check | OK | Watch | Check |
@@ -212,7 +212,7 @@ It stays imported through app updates. **Replace model** swaps in another model 
 ### How it works
 A small model doesn't know your car, and it shouldn't guess what's normal. So Car Dash does the judging itself and gives the AI **facts**:
 
-1. **The drive report**, with the app's verdicts (OK / watch / check), decided by fixed rules.
+1. **The drive report**, with the app's verdicts (OK / watch / check), decided by fixed rules, and a **timeline** of what happened when: each engine start with its battery dip, each stop, the highest rpm (and the speed then), the top speed, the longest wait with the engine idling, the hottest coolant and the lowest battery voltage while running. The timeline is for the AI; the report on screen has the same numbers without the times.
 2. **Notes about your car** (for example "smart alternator: low voltage while accelerating is normal").
 3. **One line per earlier drive**, so it can see trends.
 4. **Your question**, or the request for a summary.
@@ -241,15 +241,24 @@ Tap **Talk** on the car screen (the first tile, top left) and ask, for example:
 - "Is the engine warm yet?"
 - "Is anything wrong?"
 - "How's the battery?"
+- "What was the highest rpm so far?"
+- "What was the battery dip when I started?"
+- "How was yesterday's drive?"
+- After switching off, with the phone still connected: "How was that drive?"
 
 Car Dash listens until you stop speaking, then answers out loud in a sentence or two, through the car's speakers, using **the car's microphone**. Talk is on the car screen only; on the phone, ask about your drives by voice in **Drives** (see above).
 
 **Allow the microphone once, before driving:** the first tap on **Talk** asks for it (finish on the phone when the car screen says so), or go to the phone's **Settings → Apps → Car Dash → Permissions → Microphone → Allow only while using the app**. Android Auto has no separate microphone setting; it uses this one.
 
-The answer comes from the AI, which gets the car's **readings right now** with Car Dash's own verdicts (normal, watch, check), the fuel and range, this trip and any warnings. The first question of a drive takes longer (the AI loads, about 10 seconds); after that, a few seconds. If you tap Talk and say nothing, it stops by itself after a few seconds. Talk needs Android 13 or newer and the AI model.
+The answer comes from the AI, which gets:
+- the car's **readings right now** with Car Dash's own verdicts (normal, watch, check), the fuel and range and any warnings;
+- **this drive so far**: the same report you get after the drive, worked out again for every question, with its timeline (highest rpm, start dip and so on);
+- **your earlier drives**: the last five in one line each, the last 7 days' totals and the battery dip of your last five engine starts.
+
+When Car Dash isn't reading the car, the AI gets your last finished drive instead of "this drive so far". All this is prepared while you're still speaking, so it doesn't add waiting. The answer's first sentence is spoken as soon as the AI has written it; the rest follows. The first question of a drive takes longer (the AI loads, about 10 seconds); after that, a few seconds. If you tap Talk and say nothing, it stops by itself after a few seconds. Talk needs Android 13 or newer and the AI model.
 
 - Loading the model takes a few seconds the first time. A summary takes about 10–30 seconds, depending on the phone.
-- The AI never runs while Car Dash reads your car during a drive, so the recording always comes first. It's switched off again a few minutes after the last question, to free memory.
+- Apart from Talk, the AI never runs while Car Dash reads your car during a drive, so the recording always comes first. It's switched off again a few minutes after the last question, to free memory.
 - **It can make mistakes.** Small models sometimes phrase things oddly or get details wrong. The **report** is the reliable part; the AI explains it.
 - **Settings → AI → Advanced settings** has the AI's technical settings (temperature, top-K, top-P, answer length, GPU or CPU, the system prompt). You don't need to change them. If the app closes while the AI loads, switch **Runs on** to **CPU**.
 
@@ -316,7 +325,7 @@ When fuel is low, the Dash reminds you to fill to the click and log it, until Ca
 - **Everything stays on your phone:** drives, reports, AI summaries and car settings, in the app's private storage. Uninstalling the app deletes them.
 - **Nothing is sent anywhere.** Car Dash has no account, no ads and no analytics, and the AI runs on the phone. Files leave the phone only when **you** tap **Share**.
 - **Spoken questions in Drives** use Android's own **Speak now** window (Google's speech recognition), which may send your words to Google to recognise them.
-- **Talk:** the car's microphone is used only while Talk listens. The sound of your **last** question is kept on the phone (replaced by the next one) so a problem with Talk can be checked; it leaves the phone only inside a drive's ZIP when you tap **Share**. The on-phone AI listens to your question itself, so it stays on the phone. Only if your AI model file can't take sound does Car Dash fall back to the phone's speech recognition, which may send the recording to Google to recognise it.
+- **Talk:** the car's microphone is used only while Talk listens. The sound of your **last** question and what the AI was given for it are kept on the phone (replaced by the next one) so a problem with Talk can be checked; it leaves the phone only inside a drive's ZIP when you tap **Share**. The on-phone AI listens to your question itself, so it stays on the phone. Only if your AI model file can't take sound does Car Dash fall back to the phone's speech recognition, which may send the recording to Google to recognise it.
 - **Read-only:** Car Dash only reads standard diagnostic data. It never writes to, resets or clears anything in your car (including fault codes).
 - **Bluetooth** is used only to talk to the adapter you chose.
 

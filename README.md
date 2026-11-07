@@ -202,10 +202,19 @@ their worst verdict (`✓ OK`, `▲ WATCH`, `■ CHECK`); tap one for its report
 Older recordings get a report the first time DRIVES is opened. Recordings with fewer than 10 rows
 show `too short`.
 
+Since report VERSION 7 (2026-11-07) the same calculation also runs **during** a LIVE drive: the
+report's 12 columns are kept in memory (`logic/DriveBuffer`, ~100 bytes a row) and
+`DriveReports.live()` gives "the drive so far" (Talk). Both read `logic/DriveData` (from the CSV or
+from memory), so the live and the final report can't disagree. Each report also has a **timeline**
+(`timeline` in the JSON, for the AI only, not shown on screen): recording start, each engine start
+with its dip, each stop and how long, highest rpm with the speed, top speed, longest idle (≥1 min),
+hottest coolant, lowest battery while running (30 s after a start). Old reports are recalculated
+when DRIVES is opened.
+
 | Part | Contents | Verdicts |
 |---|---|---|
 | VERDICT | All WATCH / CHECK findings first, then key OKs | |
-| DRIVE | Distance, average and top speed, idling %, max rpm, time over the redline | over redline: 0 s OK, ≤5 s WATCH, more CHECK |
+| DRIVE | Distance, average and top speed, idling %, max rpm, lowest steady rpm (running 3 s before and after = idle), time over the redline | over redline: 0 s OK, ≤5 s WATCH, more CHECK |
 | FUEL | Litres used, L/100 km, vs this car's average | more than 15 % above the average of earlier drives (≥2 km, needs 3) = WATCH |
 | WARM-UP (cold start only, coolant < 70 °C) | Start coolant, time to coolant 70 / 80 °C and oil 85 °C, max rpm while cold | above 2500 rpm while cold: 0 s OK, ≤10 s WATCH, more CHECK |
 | BATTERY | Resting voltage before the start (charge %), start dip (+ readings), charging, time below 12 V, highest, at end | resting ≥75 % OK, ≥25 % WATCH; dip ≥10.0 V OK, ≥9.6 V WATCH (needs 5 readings in 2 s); smart alternator: lowest 5-min peak ≥13.2 V OK, ≥12.8 V WATCH; below 12 V while running (30 s after a start): <30 s OK, <5 min WATCH; above 15.0 V for 5 s WATCH, 15.5 V CHECK |
@@ -257,9 +266,15 @@ speech = 2.5× that and > 300 for 100 ms; stops after 1.2 s quiet or 12 s; nothi
 music paused with audio focus) → **the model hears the WAV itself** (since 0.1.45: `Content.AudioBytes` + `EngineConfig.audioBackend` = CPU, loaded only for Talk; it writes `HEARD:` and `ANSWER:`, both logged; reason: the recognizers below said "no words" for every recording although `talk_last.wav` was clear speech). Only if the model fails with sound (a file without its audio part): speech to text (`SpeechRecognizer` with `EXTRA_AUDIO_SOURCE`: the standard service en-IN (may go
 online), then on-device en-IN, then on-device default; "no words" moves on to the next), then the model with the text → while LIVE, `DriveService` adds the
 `microphone` foreground-service type while listening (Android 14 "while in use"; result logged) → the model (preloaded while listening) gets
-**LIVE NOW** (`Talk.live`: speed/rpm/gear, temperatures with `Rules` levels, engine state, battery, fuel/range,
-consumption, trip, alerts, trouble codes) + the question, answers in ≤ 120 tokens, greedy (topK 1) → `ai/NumberCheck`: numbers not in the prompt (rounding, D tags, clock
-times and small counts allowed) → those sentences aren't spoken → `Speech.reply` (even with the voice off). Ask and
+context picked **by situation** (the model hears the question as sound, so the app can't read it first; since
+2026-11-07, worked out while the driver speaks): **EARLIER DRIVES** (`logic/DriveHistory`: newest 5 reports in one line,
+last 7 days' totals, last 5 engine starts' dips from `battery_state.json`) + **THIS DRIVE SO FAR** (the live report with
+its timeline; if the engine was already running when the drive began, a line says so) or, when not recording, **LAST
+DRIVE** (newest saved report) + **LIVE NOW** (`Talk.live`: today's date and time, speed/rpm/gear, temperatures with `Rules` levels, engine state, battery, fuel/range,
+consumption, trip, alerts, trouble codes) + the question (history dropped above 4,500 characters), answers in ≤ 120 tokens, greedy (topK 1) → `ai/NumberCheck`: numbers not in the prompt (rounding, D tags, clock
+times and small counts allowed) → those sentences aren't spoken → `Speech.reply` (even with the voice off). The
+**first sentence is spoken as soon as it's written** (`LocalLlm.ask(onText)`, number-checked first), the rest when the
+answer is done. The last prompt is saved as the car's `talk_last_prompt.txt` (in drive ZIPs) and its size logged. Ask and
 several-drives answers are greedy too and show ⚠ for such numbers (no retry: no extra delay). **Talk runs while LIVE reads the car** (the only AI use that does). Each step goes to the car's
 `talk_log.txt` (24-hour times, which recognizer, timings, reading rate before/after), included in drive ZIPs, so its
 effect on the reading rate can be checked against the drive CSV.
