@@ -81,4 +81,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.activity:activity-compose:1.12.4")
+
+    // Replay test (app/src/test): plain JVM tests; org.json's real code, as Android's copy is a stub there.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

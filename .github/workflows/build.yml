@@ -41,6 +41,17 @@ jobs:
           echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/cardash.p12"
           echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/cardash.p12" >> "$GITHUB_ENV"
 
+      # Old drives through the new code must give the same results (app/src/test, ReplayTest).
+      # A failure stops here: nothing is released or uploaded to Play.
+      - name: Replay test
+        run: gradle testDebugUnitTest --console=plain
+
+      - name: Pack the replay output
+        run: |
+          if [ -d app/build/replay-out ]; then
+            (cd app/build && zip -qr "$GITHUB_WORKSPACE/replay-${{ github.run_number }}.zip" replay-out)
+          fi
+
       - name: Build APK and app bundle
         env:
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
@@ -59,6 +70,7 @@ jobs:
           files: |
             car-dash-${{ github.run_number }}.apk
             car-dash-${{ github.run_number }}.aab
+            replay-${{ github.run_number }}.zip
 
       # Needs the secret PLAY_SERVICE_ACCOUNT_JSON: the key of a Google Cloud service account that
       # may only release Car Dash to testing tracks (see README, "Google Play").
