@@ -279,6 +279,14 @@ several-drives answers are greedy too and show ⚠ for such numbers (no retry: n
 `talk_log.txt` (24-hour times, which recognizer, timings, reading rate before/after), included in drive ZIPs, so its
 effect on the reading rate can be checked against the drive CSV.
 
+**Notes** (2026-11-15, `Talk.noteWords` / `keepNote`): a Talk that starts with "note" ("note, …", "make a note that …",
+"notes …") isn't answered. The prompt tells the model to write `ANSWER: Noted.` for those (also taken as a note if it
+answers only "Noted."); the first sentence isn't spoken early. `DriveReports.addNote` appends
+`yyyy-MM-dd HH:mm:ss.SSS | words` (time = the tap) to `drive_<stamp>_notes.txt` next to the recording LIVE is writing
+(not recording: not saved, the driver hears so). `DriveReport.calculate(…, notes)` puts them in the timeline
+(`h:mm a driver's note: "…"`): live report (Talk, THIS DRIVE SO FAR), final report, Drives questions. The file is in
+the drive's share ZIP. Use: ground truth for tests (battery AC/lights, tiredness) in the drive data.
+
 A language model that runs **on the phone itself** (Google's LiteRT-LM engine, the one inside the
 AI Edge Gallery app). Nothing leaves the phone; Car Dash still has no internet access.
 
@@ -360,7 +368,7 @@ car is changed or cleared.
 |---|---|
 | CAR | Name, VIN, stored trouble codes (codes only, no descriptions), gear ratios, protocol |
 | ENGINE | State (TOO HOT / HOT, or the warm-up stage), torque (Nm) and power (bhp) with peaks, heat soak, boost, temperature trends per minute |
-| FUEL | Litres left ± uncertainty, range (litres ÷ this trip blended with the last ~100 km of driving; runs under 0.5 km, e.g. parked idling, left out; kept per run in `fuel_state.json` → `recent`, first filled from the drive reports), L/100 km now / this trip / average, fuel flow and its source, float sensor reading, notes |
+| FUEL | Litres left ± uncertainty, range (litres ÷ this trip blended with the last ~100 km of driving; runs under 0.5 km, e.g. parked idling, left out; kept per run in `fuel_state.json` → `recent`, first filled from the drive reports), L/100 km now / this trip / average, fuel flow and its source, float sensor reading, notes. **Drives without the app** (km counter PID 31 moved since the last saved run): km × consumption taken off at the run's first readings; for 10 min the Dash's Fuel left card says "−X L · N km without app" instead of the range (`FuelReport.missed`, 2026-11-15: the owner saw 20.5 → 18.0 L at ignition with no reason shown) |
 | BATTERY | Charging state and volts, engine computer vs port voltage, the dip at the last engine start |
 | TRIP | Distance, average speed, acceleration (g), RPM per km/h, best 0-60 / 0-100 km/h, top speed and RPM, pedal sensor check, km driven with the check-engine light on |
 
@@ -398,7 +406,7 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 - A reconnect during the drive continues the same file. A run that never connected leaves no file.
 - Files are kept per car in `files/cars/<car>/recordings/` (drives from builds 5-6 were moved
   to the Tiago's folder).
-- **Drives → a drive → Share** sends that drive as one ZIP `CarDash_drive_<date>_<time>.zip` (recording, profile, report, AI summary + the car's `fuel_state.json` for checking the fuel numbers), e.g. by email. A ZIP because some apps convert a loose CSV on the way; the ZIP also has a checksum per file, so a damaged copy fails to unzip instead of giving wrong data.
+- **Drives → a drive → Share** sends that drive as one ZIP `CarDash_drive_<date>_<time>.zip` (recording, profile, report, AI summary, the driver's spoken notes `_notes.txt` + the car's `fuel_state.json` for checking the fuel numbers), e.g. by email. A ZIP because some apps convert a loose CSV on the way; the ZIP also has a checksum per file, so a damaged copy fails to unzip instead of giving wrong data.
 - **Drives → a drive → Replay** plays it again, with all calculations (nothing is saved).
   About 1 MB per 5 minutes.
 - The screen stays on while LIVE / DEMO / TEST runs: a locked phone may pause the app,

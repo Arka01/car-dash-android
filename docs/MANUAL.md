@@ -149,7 +149,7 @@ Like the gears, it then **learns by itself**, from your fill-ups and drives:
 - **your tank's real size** to the first click (often a bit more than the official size), from fill-ups made when the tank was nearly empty
 - **how accurate the engine's own fuel count is**, from every two full fill-ups in a row
 - **what your tank gauge really means** at every level, from steady driving once the count is calibrated
-- **drives made without Car Dash**: the car's own distance counter shows the km you drove, and the fuel they used is taken off
+- **drives made without Car Dash**: the car's own distance counter shows the km you drove, and the fuel they used is taken off. So **Fuel left can drop when you switch the ignition on**: for the first 10 minutes the Fuel left card then says why, for example "−2.5 L · 30 km without app"
 
 **All you do is log every refuel** (see section 9).
 
@@ -170,7 +170,7 @@ Car Dash asks the car for several values at once, which makes the important valu
 
 **Drives** lists your drives, newest first. Each card shows the date and time (e.g. **Wed 4 Nov 2026 · 9:10 AM**), duration, distance, kind of drive and consumption, plus the drive's overall verdict: **✓ OK**, **▲ watch** or **■ check**. Tap a drive to open its report:
 
-- **Share:** sends the drive as one ZIP file (recording, report, AI summary, the car's fuel data and the last Talk question), for example by email. Unzip it on the computer; if a copy got damaged on the way, unzipping says so.
+- **Share:** sends the drive as one ZIP file (recording, report, AI summary, your spoken notes, the car's fuel data and the last Talk question), for example by email. Unzip it on the computer; if a copy got damaged on the way, unzipping says so.
 - **Replay:** plays the drive again on the Dash.
 - **AI summary:** the short spoken text and a longer explanation. Tap **Write again** to have it rewritten.
 - **Ask about this drive:** see section 8.
@@ -247,6 +247,13 @@ Tap **Talk** on the car screen (the first tile, top left) and ask, for example:
 - After switching off, with the phone still connected: "How was that drive?"
 
 Car Dash listens until you stop speaking, then answers out loud in a sentence or two, through the car's speakers, using **the car's microphone**. Talk is on the car screen only; on the phone, ask about your drives by voice in **Drives** (see above).
+
+**Notes: mark a moment of the drive.** Start with the word **"Note"**, for example:
+- "Note, climbing the ramp from the basement."
+- "Note, AC on now."
+- "Note, I feel tired."
+
+That's not a question: Car Dash only says **"Noted."** and keeps the note with the drive, at the time you tapped Talk. It shows in the drive's report (the timeline: "6:52 PM driver's note: …"), the AI sees it when you ask about the drive, and it's in the drive's ZIP when you share it. Notes are kept only while Car Dash is recording a drive (LIVE on).
 
 **Allow the microphone once, before driving:** the first tap on **Talk** asks for it (finish on the phone when the car screen says so), or go to the phone's **Settings → Apps → Car Dash → Permissions → Microphone → Allow only while using the app**. Android Auto has no separate microphone setting; it uses this one.
 
