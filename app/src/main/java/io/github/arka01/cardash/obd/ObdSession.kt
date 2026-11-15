@@ -5,13 +5,10 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
-import io.github.arka01.cardash.BuildConfig
 import io.github.arka01.cardash.CarState
 import io.github.arka01.cardash.Dash
-import io.github.arka01.cardash.KeyMarks
 import io.github.arka01.cardash.ProbeResult
 import io.github.arka01.cardash.Reading
-import io.github.arka01.cardash.TestInfo
 import io.github.arka01.cardash.cars.CarProfile
 import io.github.arka01.cardash.cars.Cars
 import kotlinx.coroutines.CancellationException
@@ -25,7 +22,6 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.FileWriter
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -50,9 +46,6 @@ private val VOLTS = Regex("""(\d{1,2}\.\d{1,2})\s*[Vv]""")
 sealed class Task {
     /** Live dashboard and recording. */
     object Live : Task()
-
-    /** KEY TEST rows into [file]. */
-    class KeyTest(val file: File) : Task()
 
     /** PROBE of [car] (newCar = false), or NEW CAR: scan, VIN, questions. */
     class Scan(val newCar: Boolean, val car: CarProfile?) : Task()
@@ -157,10 +150,6 @@ object ObdSession {
                 log("$cmd → ${answer.joinToString(" | ")}")
             }
 
-            if (task is Task.KeyTest) {
-                runKeyTest(task.file, car?.name ?: "car")
-                return false
-            }
             if (task is Task.Scan) return runScan(context, task, protocol == "0")
 
             status("Finding sensors…")
@@ -405,75 +394,6 @@ object ObdSession {
                     return
                 }
                 Thread.sleep(1700)
-            }
-        }
-
-        /**
-         * KEY TEST loop, about once a second until stopped. Each row: battery voltage at the
-         * OBD port (3 readings, so the starter's dip isn't missed), which computers answer
-         * "01 00", the engine's RPM, and what the car's network carries in 300 ms of listening.
-         * Appends to [file], so a reconnect continues the same test.
-         */
-        private fun runKeyTest(file: File, carName: String) {
-            val clock = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
-            val writer = FileWriter(file, true)
-            try {
-                if (file.length() == 0L) {
-                    writer.write("# Car Dash ${BuildConfig.VERSION_NAME} KEY TEST, $carName, adapter ${elm.command("ATI").firstOrNull()}\n")
-                    writer.write("# label = key position tapped in the DEV tab; tap = set on the row right after a tap\n")
-                    writer.write("time,t,label,tap,volt1,volt2,volt3,ecus,rpm,frames,ids,id_list\n")
-                }
-                val started = System.currentTimeMillis()
-                var rows = 0
-                var recent = listOf<String>()
-                status("Key test running")
-                while (true) {
-                    val v1 = volts()
-                    val ecus = assembleCan11(elm.command("0100", 3000)).keys.sorted()
-                    val v2 = volts()
-                    val rpmData = assembleCan11(elm.command("010C", 3000))[ENGINE]
-                    val rpm = if (rpmData != null && rpmData.size >= 4 && rpmData[0] == 0x41 && rpmData[1] == 0x0C) {
-                        (rpmData[2] * 256 + rpmData[3]) / 4.0
-                    } else {
-                        null
-                    }
-                    val v3 = volts()
-                    val frames = elm.monitor(300)
-                    val ids = frames.map { it.substring(0, 3) }.toSortedSet()
-
-                    val label = KeyMarks.label
-                    val tap = KeyMarks.takeTap() ?: ""
-                    val t = (System.currentTimeMillis() - started) / 1000.0
-                    val volt = listOf(v1, v2, v3).map { it?.let { v -> String.format(Locale.US, "%.2f", v) } ?: "" }
-                    val row = listOf(
-                        clock.format(Date()), String.format(Locale.US, "%.1f", t), label, tap,
-                        volt[0], volt[1], volt[2], ecus.joinToString(" "), rpm?.let { String.format(Locale.US, "%.0f", it) } ?: "",
-                        frames.size.toString(), ids.size.toString(), ids.joinToString(" "),
-                    )
-                    writer.write(row.joinToString(",") + "\n")
-                    writer.flush()
-                    rows++
-
-                    // Short line for the screen (30 characters): seconds, label, lowest voltage, computers, messages.
-                    val low = listOfNotNull(v1, v2, v3).minOrNull()
-                    val who = ecus.joinToString("") { it.takeLast(2) }.ifEmpty { "--" }
-                    val line = String.format(
-                        Locale.US, "%4.0fs %-5s %5s %-4s %4df", t, label,
-                        low?.let { String.format(Locale.US, "%.2fV", it) } ?: "--", who.take(4), frames.size,
-                    )
-                    recent = (recent + line).takeLast(12)
-                    val n = rows
-                    val r = recent
-                    Dash.update(gen) {
-                        it.copy(
-                            status = "Key test: $n rows",
-                            adapterVoltage = low ?: it.adapterVoltage,
-                            test = TestInfo(file.name, KeyMarks.label, n, r),
-                        )
-                    }
-                }
-            } finally {
-                writer.close()
             }
         }
 

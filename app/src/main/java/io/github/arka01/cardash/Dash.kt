@@ -21,7 +21,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class Mode { OFF, LIVE, DEMO, REPLAY, TEST, PROBE }
+enum class Mode { OFF, LIVE, DEMO, REPLAY, PROBE }
 
 /**
  * What the car is doing, worked out from the OBD port (KEY TEST of 2026-10-26):
@@ -42,9 +42,6 @@ enum class CarState(val label: String) {
 
 /** One engine value: the number (for bars, warnings, gear) and the text to show. */
 data class Reading(val pid: Int, val name: String, val number: Double?, val text: String, val time: Long)
-
-/** The KEY TEST in the DEV tab: which file it writes, the key position tapped, the latest rows. */
-data class TestInfo(val file: String, val label: String, val rows: Int = 0, val recent: List<String> = emptyList())
 
 /**
  * What a PROBE / NEW CAR scan found. For a new car whose VIN matches no car set up ([knownCar]
@@ -71,7 +68,6 @@ data class Snapshot(
     val roundsPerSec: Double = 0.0,                 // how often RPM and speed refresh
     val fastRead: String = "",
     val log: List<String> = emptyList(),
-    val test: TestInfo? = null,
     val recording: String? = null,   // file name of the drive being recorded (LIVE)
     val carState: CarState = CarState.UNKNOWN,
     val recordedRows: Int = 0,
@@ -170,30 +166,6 @@ object Dash {
         val car = if (newCar) null else Cars.active(context)
         val gen = begin(context, Mode.PROBE, car, live = false, if (newCar) "New car: connecting…" else "Probe: connecting…", adapter.name)
         ObdSession.start(context, adapter, gen, Task.Scan(newCar, car))
-    }
-
-    /**
-     * KEY TEST: records battery voltage, which car computers answer and network traffic about
-     * once a second into files/dev/keytest_<date>_<time>.csv, labelled with the key position
-     * tapped in the DEV tab. Used to work out how to tell LOCK / ACC / ON / START / RUN apart.
-     */
-    fun startKeyTest(context: Context, adapter: SavedAdapter) {
-        Cars.init(context)
-        val dir = File(context.filesDir, DEV_DIR).apply { mkdirs() }
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val file = File(dir, "keytest_$stamp.csv")
-        val gen = begin(context, Mode.TEST, Cars.active(context), live = false, "Key test: connecting…", adapter.name)
-        update(gen) { it.copy(test = TestInfo(file.name, KeyMarks.label)) }
-        ObdSession.start(context, adapter, gen, Task.KeyTest(file))
-    }
-
-    /** The key position the user just tapped (DEV tab); goes into the next KEY TEST row. */
-    fun markKey(label: String) {
-        KeyMarks.mark(label)
-        synchronized(this) {
-            val s = store.value
-            store.value = s.copy(test = s.test?.copy(label = label))
-        }
     }
 
     // ---------------------------------------------------------------- during a run
@@ -373,10 +345,6 @@ object Dash {
             .sortedByDescending { it.name }
     }
 
-    /** The newest KEY TEST file, if any, for sharing. */
-    fun latestKeyTest(context: Context): File? =
-        File(context.filesDir, DEV_DIR).listFiles { f -> f.name.startsWith("keytest_") }?.maxByOrNull { it.name }
-
     const val DEV_DIR = "dev"
 
     fun stop() {
@@ -408,21 +376,4 @@ object Dash {
     fun log(gen: Int, line: String) = update(gen) {
         it.copy(log = (it.log + "${clock.format(Date())} $line").takeLast(60))
     }
-}
-
-/** Key position labels from the DEV tab, read by the KEY TEST loop on another thread. */
-object KeyMarks {
-    val POSITIONS = listOf("LOCK", "ACC", "ON", "START", "RUN")
-
-    @Volatile var label = "LOCK"
-        private set
-    @Volatile private var tapped: String? = null
-
-    fun mark(position: String) {
-        label = position
-        tapped = position
-    }
-
-    /** The position tapped since the last row, if any (marks the exact moment of the change). */
-    fun takeTap(): String? = tapped.also { tapped = null }
 }

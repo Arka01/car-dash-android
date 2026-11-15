@@ -408,10 +408,10 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 
 ---
 
-## KEY TEST (removed from the app, build 22)
+## KEY TEST (removed: button in build 22, code in build 49)
 
 It recorded what the OBD port shows at each key position (26 Oct 2026); that's how the app tells
-ENGINE ON / IGNITION ON / IGNITION OFF apart. Its button is gone; old files stay in `files/dev/`.
+ENGINE ON / IGNITION ON / IGNITION OFF apart. Button and code are gone; old files stay in `files/dev/`.
 
 ---
 
@@ -503,7 +503,7 @@ the Tiago's screen showed about 3 list rows (build 9), so build 10 uses a grid o
 | `app/src/main/java/.../obd/Probe.kt` | Questions to every computer: supported values, VIN, trouble codes, fuel type, module scan |
 | `app/src/main/java/.../obd/Elm327.kt` | Sends text commands to the adapter, joins multi-part answers |
 | `app/src/main/java/.../obd/Pids.kt` | Names and formulas for each sensor value |
-| `app/src/main/java/.../obd/ObdSession.kt` | The connection: protocol, find sensors, VIN check, fast reading with self-test, engine-off fast voltage, reconnect; KEY TEST; PROBE / NEW CAR |
+| `app/src/main/java/.../obd/ObdSession.kt` | The connection: protocol, find sensors, VIN check, fast reading with self-test, engine-off fast voltage, reconnect; PROBE / NEW CAR |
 | `app/src/main/java/.../obd/Adapters.kt` | Remembers which paired Bluetooth device is the adapter |
 | `app/src/main/java/.../Report.kt` | The plain text sent by **[SHARE]** |
 | `app/src/main/java/.../MainActivity.kt` | Starts the phone screen; Bluetooth permission, adapter choice, sharing, dialogs (car, NEW CAR, REFUEL, GEARS, REPLAY) |

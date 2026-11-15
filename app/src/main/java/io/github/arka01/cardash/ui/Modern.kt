@@ -182,7 +182,6 @@ internal fun TopBar(s: Snapshot, now: Long, title: String, openMenu: () -> Unit)
         Mode.LIVE -> "● LIVE" to NEON
         Mode.DEMO -> "◆ DEMO" to WARN
         Mode.REPLAY -> "◆ REPLAY" to WARN
-        Mode.TEST -> "◇ TEST" to WARN
         Mode.PROBE -> "◇ SCAN" to WARN
         Mode.OFF -> "○ OFF" to FAINT
     }

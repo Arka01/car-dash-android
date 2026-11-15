@@ -293,7 +293,7 @@ class MainActivity : ComponentActivity() {
     /** Sidebar car switcher: use another car (not while LIVE / a scan reads a car). */
     private fun switchCar(key: String) {
         when (Dash.state.value.mode) {
-            Mode.LIVE, Mode.PROBE, Mode.TEST -> toast("Stop first: one recording is for one car")
+            Mode.LIVE, Mode.PROBE -> toast("Stop first: one recording is for one car")
             else -> {
                 Dash.chooseCar(this, key)
                 toast("Now using ${Cars.load(key).shortName}")

@@ -52,7 +52,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Lets other apps (email, Drive) read the files shared from the DEV tab. -->
+        <!-- Lets other apps (email, Drive) read the files Car Dash shares (drive ZIPs, logs). -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"
