@@ -368,7 +368,10 @@ private fun ValueGrid(s: Snapshot, now: Long, actions: Actions) {
         } else {
             ValueSpec("Battery", f(s.fresh(0x42, now), "%.1f"), "V", null, NEON)
         },
-        ValueSpec("Fuel left", f(litres, "%.1f"), "L", fuel?.rangeKm?.let { String.format(Locale.US, "%.0f km range", it) } ?: "tap after filling up",
+        // Right after drives without Car Dash were taken off: say why the litres dropped, instead of the range.
+        ValueSpec("Fuel left", f(litres, "%.1f"), "L",
+            fuel?.missed?.let { (km, l) -> String.format(Locale.US, "−%.1f L · %.0f km without app", l, km) }
+                ?: fuel?.rangeKm?.let { String.format(Locale.US, "%.0f km range", it) } ?: "tap after filling up",
             when {
                 litres == null -> FAINT
                 litres < 4 -> ALARM

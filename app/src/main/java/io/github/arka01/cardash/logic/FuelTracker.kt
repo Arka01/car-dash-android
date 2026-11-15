@@ -27,6 +27,9 @@ data class FuelReport(
     val fillUpsLearned: Int,
     val notes: List<String>,
     val fillTip: Boolean,            // the tank isn't learned yet: ask for a fill to the click at the next refuel
+    // Driven without Car Dash (2026-11-15: fuel left dropped from 20.5 to 18.0 L at ignition with no reason
+    // shown): km and litres taken off at the start of this run; null after the first minutes or if none.
+    val missed: Pair<Double, Double>? = null,
 )
 
 /** What the app has learned about this car's fuel readings, in plain words for My car (from fuel_state.json). */
@@ -72,6 +75,8 @@ class FuelTracker(
     /** The tank's real volume to the first click: learned from near-empty full fills, else the entered size. */
     private val tank: Double get() = state.num("tank_learned") ?: nominalTank
     private var odoChecked = false
+    private var missed: Pair<Double, Double>? = null   // km, litres: drives without Car Dash, taken off at this run's start
+    private var missedAt = 0.0
     private var lastOdo: Double? = null   // the car's km counter ("distance since codes cleared")
     private var litres: Double? = state.num("litres")
     private var variance: Double = state.num("variance") ?: 0.0
@@ -129,7 +134,10 @@ class FuelTracker(
 
         if (!started && !start(now)) return   // waiting for the first float readings
         v["Since codes cleared"]?.let { odo ->
-            if (!odoChecked) missedDrives(odo)
+            if (!odoChecked) {
+                missedDrives(odo)
+                missedAt = now
+            }
             lastOdo = odo
         }
         watchForRefuel(now)
@@ -174,6 +182,7 @@ class FuelTracker(
             fillUpsLearned = state.optJSONArray("float_curve")?.length() ?: 0,
             notes = notes.toList(),
             fillTip = state.optInt("tank_samples", 0) == 0 || state.optInt("rate_scale_learned", 0) == 0,
+            missed = missed?.takeIf { (lastTime ?: missedAt) - missedAt < MISSED_SHOWN_S },
         )
     }
 
@@ -381,7 +390,9 @@ class FuelTracker(
             it.put("litres", it.optDouble("litres", 0.0) + l)
             it.put("missed", it.optDouble("missed", 0.0) + l)
         }
-        notes += String.format(Locale.US, "Driven about %.0f km without Car Dash: about %.1f L taken off.", km, l)
+        missed = km to l
+        notes += String.format(Locale.US, "You drove about %.0f km without Car Dash (the car's km counter moved), " +
+            "so about %.1f L was taken off the fuel left.", km, l)
     }
 
     /** Between two fills to full, the litres added = the fuel really burned: correct the counting scale. */
@@ -762,6 +773,7 @@ class FuelTracker(
         const val PLATEAU_PCT = 97.0           // float reads ~100 % for the first litres after filling
         const val REFUEL_JUMP = 4.0            // litres: a bigger rise since last drive counts as a refuel
         const val SAVE_EVERY = 30.0            // seconds between saves of the state file
+        const val MISSED_SHOWN_S = 600.0       // "driven without Car Dash" shows on the Dash this long
         const val DEFAULT_L_PER_100 = 7.0      // for missed drives before the car's own average is known
         const val RECENT_KM = 100.0            // the range's average covers about this much recent driving...
         const val MIN_RUN_KM = 0.5             // ...from runs that moved at least this far
