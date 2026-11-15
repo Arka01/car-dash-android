@@ -1,0 +1,16 @@
+# Dependabot proposes updates for the SHA-pinned actions in .github/workflows as pull requests
+# (new SHA + version comment). Review, then merge on GitHub: merging pushes to main, which runs
+# a normal build and Play upload. cooldown = only propose releases that are at least 7 days old.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "CI"
