@@ -18,6 +18,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** One drive in the DRIVES list: its recording and its report (null = being calculated / not possible). */
 data class DriveItem(val csv: File, val report: DriveReport?, val failed: Boolean = false)
@@ -35,6 +38,32 @@ object DriveReports {
 
     fun reportFile(csv: File) = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_report.json")
     private fun profileFile(csv: File) = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_profile.json")
+    /** The driver's spoken notes of a drive (Talk "Note …", 2026-11-15): one "yyyy-MM-dd HH:mm:ss.SSS | words" per line. */
+    fun notesFile(csv: File) = File(csv.parentFile, csv.name.removeSuffix(".csv") + "_notes.txt")
+
+    /**
+     * Saves the driver's note [words] (said at [ms]) with the drive LIVE is recording now and the drive's
+     * live report picks it up at once. False if no drive is being recorded.
+     */
+    fun addNote(words: String, ms: Long): Boolean {
+        val run = Dash.run?.takeIf { it.live && Dash.state.value.mode == Mode.LIVE } ?: return false
+        val csv = run.recorder?.csv ?: return false
+        val line = SimpleDateFormat(NOTE_TIME, Locale.US).format(Date(ms)) + " | " + words.replace(Regex("\\s+"), " ").trim() + "\n"
+        return runCatching { notesFile(csv).appendText(line) }.isSuccess
+    }
+
+    /** A drive's notes (time, words), oldest first; empty if none. */
+    fun notes(csv: File): List<Pair<Long, String>> = runCatching {
+        val clock = SimpleDateFormat(NOTE_TIME, Locale.US)
+        notesFile(csv).takeIf { it.exists() }?.readLines().orEmpty().mapNotNull { line ->
+            val time = line.substringBefore(" | ", "")
+            val words = line.substringAfter(" | ", "").trim()
+            val ms = runCatching { clock.parse(time)?.time }.getOrNull()
+            if (ms == null || words.isEmpty()) null else ms to words
+        }
+    }.getOrDefault(emptyList())
+
+    private const val NOTE_TIME = "yyyy-MM-dd HH:mm:ss.SSS"   // as the drive recordings
 
     /** The chosen car's drives with their reports; calculates any that are missing (oldest first). */
     fun refresh(context: Context) {
@@ -150,7 +179,7 @@ object DriveReports {
         val buffer = run.buffer ?: return null
         return runCatching {
             val avg = average(earlier(run.car, csv.name))
-            DriveReport.calculate(buffer.snapshot(), csv.name, run.car, Dash.state.value.troubleCodes, avg)
+            DriveReport.calculate(buffer.snapshot(), csv.name, run.car, Dash.state.value.troubleCodes, avg, notes(csv))
         }.getOrNull()
     }
 
@@ -194,6 +223,6 @@ object DriveReports {
     private fun calculate(csv: File, car: CarProfile, earlier: List<DriveReport>): DriveReport? = runCatching {
         val avg = average(earlier)
         val profile = runCatching { JSONObject(profileFile(csv).readText()) }.getOrNull()
-        DriveReport.calculate(csv, car, profile, avg)?.also { reportFile(csv).writeText(it.toJson().toString(2)) }
+        DriveReport.calculate(csv, car, profile, avg, notes(csv))?.also { reportFile(csv).writeText(it.toJson().toString(2)) }
     }.getOrNull()
 }

@@ -131,17 +131,24 @@ class DriveReport(
          * [profile] = its _profile.json (trouble codes), [averageLPer100] = this car's average over
          * earlier drives (null below 3 drives).
          */
-        fun calculate(csv: File, car: CarProfile, profile: JSONObject?, averageLPer100: Double?): DriveReport? {
+        fun calculate(
+            csv: File, car: CarProfile, profile: JSONObject?, averageLPer100: Double?,
+            notes: List<Pair<Long, String>> = emptyList(),
+        ): DriveReport? {
             val data = read(csv) ?: return null
-            return calculate(data, csv.name, car, profile?.optString("trouble_codes"), averageLPer100)
+            return calculate(data, csv.name, car, profile?.optString("trouble_codes"), averageLPer100, notes)
         }
 
         /**
          * The report for [data]: a whole recording, or the drive going on now (LIVE's DriveBuffer: "this
          * drive so far", 2026-11-07), calculated the same way. [driveName] = the CSV file name, [codes] =
-         * the trouble codes read at connecting (null / empty = not known).
+         * the trouble codes read at connecting (null / empty = not known). [notes] = the driver's spoken
+         * notes (time, words; Talk "Note …", 2026-11-15), put into the timeline.
          */
-        fun calculate(data: DriveData, driveName: String, car: CarProfile, codes: String?, averageLPer100: Double?): DriveReport? {
+        fun calculate(
+            data: DriveData, driveName: String, car: CarProfile, codes: String?, averageLPer100: Double?,
+            notes: List<Pair<Long, String>> = emptyList(),
+        ): DriveReport? {
             val n = data.size
             if (n < 10) return null
             val t = data.times
@@ -445,18 +452,18 @@ class DriveReport(
                 movingAvg < 35 -> "city"
                 else -> "mixed"
             } + if (overRedline >= 1.0) ", spirited" else ""
-            val timeline = timelineOf(t, speed, rpm, coolant, volts, running, starts, dips)
+            val timeline = timelineOf(t, speed, rpm, coolant, volts, running, starts, dips, notes)
             return DriveReport(driveName, t[0], duration / 60, km, litres, lPer100, all, sections, type, timeline)
         }
 
         /**
          * What happened when, oldest first (Talk and questions, 2026-11-07: asked "what was the highest rpm",
          * the AI only had the current rpm). Engine starts with their dip, stops, highest rpm, top speed,
-         * longest idle, hottest coolant, lowest battery while running. Facts, no verdicts of their own.
+         * longest idle, hottest coolant, lowest battery while running, the driver's notes. Facts, no verdicts of their own.
          */
         private fun timelineOf(
             t: LongArray, speed: DoubleArray, rpm: DoubleArray, coolant: DoubleArray, volts: DoubleArray,
-            running: BooleanArray, starts: List<Int>, dips: Map<Int, String>,
+            running: BooleanArray, starts: List<Int>, dips: Map<Int, String>, notes: List<Pair<Long, String>>,
         ): List<String> {
             val n = t.size
             val events = ArrayList<Pair<Long, String>>()
@@ -513,6 +520,8 @@ class DriveReport(
             }.minByOrNull { volts[it] }?.let { i ->
                 events += t[i] to String.format(Locale.US, "%s lowest battery while running %.1f V", at(i), volts[i])
             }
+            // The driver's own notes, e.g. "climbing the ramp from the basement": what the numbers can't tell.
+            for ((ms, words) in notes) events += ms to "${TimeFormat.clock(ms)} driver's note: \"$words\""
             return events.sortedBy { it.first }.map { it.second }
         }
 

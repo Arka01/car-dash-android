@@ -51,6 +51,10 @@ import kotlin.math.sqrt
  *    Android's speech recognition, then the AI with the text, as before.
  * 4. The answer is spoken (car speakers with Android Auto).
  *
+ * Notes (2026-11-15): "Note, climbing the ramp from the basement" is no question. It's saved with the
+ * drive being recorded (drive_…_notes.txt, its time = the tap), shows in the drive's timeline and
+ * Car Dash only says "Noted." Marks moments in the data (tests, how the driver feels) by voice.
+ *
  * Unlike the other AI uses, Talk runs while LIVE reads the car. Every Talk is written to the car's
  * talk_log.txt with its timings and the reading rate, so its effect on the readings can be checked.
  */
@@ -71,7 +75,9 @@ object Talk {
     /** Talk with sound: the AI writes what it heard, then its answer (both read by askHeard). */
     private const val HEARD = "The driver's question is in the audio. Reply in exactly this form:\n" +
         "HEARD: <the question, word for word>\nANSWER: <your answer>\n" +
-        "If there is no clear question in the audio, write HEARD: (nothing) and ANSWER: Sorry, I didn't catch that."
+        "If there is no clear question in the audio, write HEARD: (nothing) and ANSWER: Sorry, I didn't catch that.\n" +
+        "If the driver begins with the word note, it's a note for the drive's record, not a question: write HEARD: " +
+        "<everything said, word for word> and ANSWER: Noted."
 
     private val status = MutableStateFlow("")
     /** What Talk is doing, for the Dash: "Listening…", "Thinking…", or "" when idle. */
@@ -150,6 +156,10 @@ object Talk {
             }
             note(app, String.format(Locale.US, "asked after %.1f s (%s; %s; reading %.1f/s): %s",
                 heard, mic.name, how, Dash.state.value.roundsPerSec, text))
+            noteWords(text)?.let { words ->
+                keepNote(app, words, pressed, show)
+                return@recognize
+            }
             say(app, show, "Thinking…")
             ask(app, text, extra, show)
         }
@@ -181,6 +191,11 @@ object Talk {
             val reply = answerPart(answer) ?: answer.replace(Regex("""HEARD:.*""", RegexOption.IGNORE_CASE), "")
             note(app, String.format(Locale.US, "heard by the AI after %.1f s (%s; reading %.1f/s): %s",
                 (System.currentTimeMillis() - pressed) / 1000.0, mic.name, Dash.state.value.roundsPerSec, heard.ifEmpty { "?" }))
+            // A note: the AI was told to answer only "Noted." (also taken as a note if it heard "note" differently).
+            (noteWords(heard) ?: heard.takeIf { it.isNotBlank() && reply.trim().trimEnd('.', '!').equals("noted", true) })?.let { words ->
+                keepNote(app, words, pressed, show)
+                return@ask
+            }
             speak(app, heard.ifEmpty { "(not clear)" }, reply, prompt + "\n" + heard, asked, first)
         }
         if (why != null) {
@@ -235,6 +250,29 @@ object Talk {
         lastTalk.value = "You: $question\nCar Dash: $say"
         finish("")
     }
+
+    /**
+     * The words of a note ("Note, climbing the ramp" → "climbing the ramp"), or null if [heard] isn't one.
+     * Also "make a note", "note that", "notes" (how the AI may write it). Null for "note" alone.
+     */
+    internal fun noteWords(heard: String): String? {
+        val m = NOTE.find(heard.trim().trim('"', '\u201C', '\u201D', '\'').trim()) ?: return null
+        return m.groupValues[1].trim().trimEnd('.', '!', '?').trim().replaceFirstChar { it.uppercase() }.ifEmpty { null }
+    }
+
+    /** Saves a note with the drive being recorded, says "Noted." and logs it. */
+    private fun keepNote(app: Context, words: String, pressed: Long, show: (String) -> Unit) {
+        val saved = DriveReports.addNote(words, pressed)
+        note(app, if (saved) "note saved: $words" else "note not saved, no drive is being recorded: $words")
+        val say = if (saved) "Noted." else "No drive is being recorded, so I couldn't save that note."
+        Speech.reply(app, say)
+        lastTalk.value = "You: Note: $words\nCar Dash: $say"
+        finish("")
+        main.post { show(if (saved) "Noted" else "Note not saved: no drive recording") }
+    }
+
+    private val NOTE = Regex("""^(?:please\s+)?(?:make\s+a\s+|take\s+a\s+)?notes?\b[\s,.:;-]*(?:that\s+)?(.*)$""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
     private fun finish(text: String) {
         status.value = text
@@ -436,6 +474,7 @@ object Talk {
 
         fun offer(answer: String?, heard: String = "") {
             if (decided || answer == null) return
+            if (noteWords(heard) != null) { decided = true; return }   // a note: only "Noted." at the end
             val clean = DriveSummary.plain(answer).replace(Regex("\\s+"), " ").trimStart()
             val sentence = FIRST.find(clean)?.groupValues?.get(1)?.trim() ?: return
             decided = true

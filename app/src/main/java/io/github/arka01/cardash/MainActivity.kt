@@ -236,10 +236,10 @@ class MainActivity : ComponentActivity() {
             "Share drives", files + fuelState(csvs.first()), text)
     }
 
-    /** A drive's recording, profile, report and AI summary (the ones that exist). */
+    /** A drive's recording, profile, report, AI summary and the driver's spoken notes (the ones that exist). */
     private fun driveFiles(csv: java.io.File): List<java.io.File> {
         val base = csv.name.removeSuffix(".csv")
-        return listOf(csv.name, "${base}_profile.json", "${base}_report.json", "${base}_summary.txt")
+        return listOf(csv.name, "${base}_profile.json", "${base}_report.json", "${base}_summary.txt", "${base}_notes.txt")
             .map { java.io.File(csv.parentFile, it) }.filter { it.exists() }
     }
 
