@@ -410,7 +410,7 @@ settle, up to 60 s, max 2000 rpm) → READY TO MOVE (< 2500 rpm) → WARMING (co
 
 ## Replay test (since build 49)
 
-Every push first plays three short Tiago drive pieces (`app/src/test/resources/replay/*.csv.gz`) through
+Every push first plays short drive pieces (3 Tiago, 1 Hunter 350; `app/src/test/resources/replay/*.csv.gz`) through
 the app's calculations and compares the result with `replay/expected/`. If anything changed, the build
 stops: no release, no Play upload. The pieces are cut with `tools/make_replay_snippet.py` (dates moved,
 no VIN). Without an expected file the test only records: the output is attached to the GitHub release

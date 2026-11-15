@@ -1,0 +1,27 @@
+{
+  "name": "Royal Enfield Hunter 350 (test copy)",
+  "short_name": "HUNTER",
+  "brand": "Royal Enfield",
+  "fuel": "petrol",
+  "protocol": null,
+  "shift_rpm": 3500,
+  "redline_rpm": 4000,
+  "tank_litres": 13.0,
+  "engine_litres": 0.349,
+  "volumetric_efficiency": 0.85,
+  "gears": {
+    "rpm_per_kmh": null,
+    "gear_ratios": null,
+    "final_drive": null,
+    "tyre": null
+  },
+  "spec": {
+    "torque_nm": null,
+    "torque_rpm": null,
+    "power_bhp": null,
+    "power_rpm": null
+  },
+  "torque_calibration": null,
+  "smart_alternator": false,
+  "_about": "Replay test only: the car template plus the bike's engine size and tank (13 L from the maker's spec, assumed). The phone's own Hunter car.json may differ."
+}

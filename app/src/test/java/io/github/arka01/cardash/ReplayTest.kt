@@ -19,7 +19,7 @@ import java.util.zip.GZIPInputStream
 /**
  * Replay test (plan: docs/PLAN_vehicle_methods.md, rule 1 "nothing old breaks").
  *
- * Plays short, anonymised pieces of real drives (src/test/resources/replay/<name>.csv.gz, made with
+ * Plays short, anonymised pieces of real drives and rides (src/test/resources/replay/<name>.csv.gz, made with
  * tools/make_replay_snippet.py) through the same steps as the app's REPLAY: readings carried
  * forward row by row -> Values -> Pipeline -> DriveBuffer -> DriveReport. What comes out (every 10th
  * row's calculated values, every alert / warm-up sentence change, and the drive report) must match
@@ -40,15 +40,14 @@ class ReplayTest {
     }
 
     @Test
-    fun tiagoDrivesGiveTheSameResults() {
-        val car = tiago()
+    fun recordedDrivesGiveTheSameResults() {
         val drives = resources.listFiles { f -> f.name.endsWith(".csv.gz") }.orEmpty().sortedBy { it.name }
         if (drives.isEmpty()) fail("no replay drives in $resources")
         out.mkdirs()
         val problems = mutableListOf<String>()
         for (drive in drives) {
             val name = drive.name.removeSuffix(".csv.gz")
-            val actual = replay(drive, car)
+            val actual = replay(drive, carFor(name))
             File(out, "$name.txt").writeText(actual)
             val expectedFile = File(resources, "expected/$name.txt")
             if (!expectedFile.exists()) {
@@ -61,9 +60,14 @@ class ReplayTest {
         if (problems.isNotEmpty()) fail("Replay results changed:\n" + problems.joinToString("\n\n"))
     }
 
-    private fun tiago(): CarProfile {
-        val json = JSONObject(File("src/main/assets/cars/tata_tiago_2023/car.json").readText())
-        return CarProfile.fromJson("tata_tiago_2023", json, folder = null)   // folder null: nothing is saved
+    /** The vehicle by the piece's name: tiago_* = the app's Tiago settings, hunter_* = replay/cars/hunter.json. */
+    private fun carFor(name: String): CarProfile {
+        val (key, file) = when {
+            name.startsWith("tiago_") -> "tata_tiago_2023" to File("src/main/assets/cars/tata_tiago_2023/car.json")
+            name.startsWith("hunter_") -> "hunter" to File(resources, "cars/hunter.json")
+            else -> throw IllegalArgumentException("no vehicle for replay piece $name")
+        }
+        return CarProfile.fromJson(key, JSONObject(file.readText()), folder = null)   // folder null: nothing is saved
     }
 
     /** One drive through the app's steps; the lines to compare. */
